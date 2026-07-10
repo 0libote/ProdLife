@@ -1,13 +1,29 @@
-import { App, Notice, TFile, TFolder, moment, normalizePath } from "obsidian";
+import { App, Notice, TFile, TFolder, moment as obsidianMoment, normalizePath } from "obsidian";
 import { extractRollover, renderTemplate } from "./core";
 import type { ProdLifeSettings } from "./types";
+
+interface MomentValue {
+  format(pattern: string): string;
+  isBefore(other: MomentValue): boolean;
+  isValid(): boolean;
+  startOf(unit: "day"): MomentValue;
+  valueOf(): number;
+}
+
+interface MomentFactory {
+  (): MomentValue;
+  (value: Date): MomentValue;
+  (value: string, pattern: string, strict: boolean): MomentValue;
+}
+
+const toMoment = obsidianMoment as unknown as MomentFactory;
 
 export class DailyNotesService {
   constructor(private app: App, private settings: () => ProdLifeSettings) {}
 
   async open(date = new Date()): Promise<TFile | null> {
     const settings = this.settings();
-    const title = moment(date).format(settings.dateFormat);
+    const title = toMoment(date).format(settings.dateFormat);
     const path = normalizePath(`${settings.dailyFolder}/${title}.md`);
     const existing = this.app.vault.getAbstractFileByPath(path);
     if (existing instanceof TFile) {
@@ -29,7 +45,7 @@ export class DailyNotesService {
       const rollover = settings.rolloverTasks && previousContent
         ? this.cleanRollover(extractRollover(previousContent.replace(/\n---\n← \[\[[^\n]+\]\]\s*$/, ""), settings.removeEmptyHeadings), previous)
         : "";
-      const content = this.compose(base, rollover, moment(date).format("YYYY-MM-DD"), previousPath);
+      const content = this.compose(base, rollover, toMoment(date).format("YYYY-MM-DD"), previousPath);
       const file = await this.app.vault.create(path, content);
       await this.app.workspace.getLeaf(false).openFile(file);
       new Notice(`ProdLife created ${title}.`);
@@ -50,14 +66,14 @@ export class DailyNotesService {
     const folder = normalizePath(this.settings().dailyFolder);
     if (!file.path.startsWith(`${folder}/`)) return null;
     const relative = file.path.slice(folder.length + 1, -3);
-    const parsed = moment(relative, this.settings().dateFormat, true);
+    const parsed = toMoment(relative, this.settings().dateFormat, true);
     return parsed.isValid() ? parsed.format("YYYY-MM-DD") : null;
   }
 
   findPrevious(date: Date): TFile | null {
-    const before = moment(date).startOf("day");
+    const before = toMoment(date).startOf("day");
     return this.dailyFiles()
-      .map((file) => ({ file, date: moment(file.path.slice(normalizePath(this.settings().dailyFolder).length + 1, -3), this.settings().dateFormat, true) }))
+      .map((file) => ({ file, date: toMoment(file.path.slice(normalizePath(this.settings().dailyFolder).length + 1, -3), this.settings().dateFormat, true) }))
       .filter((entry) => entry.date.isValid() && entry.date.isBefore(before))
       .sort((a, b) => b.date.valueOf() - a.date.valueOf())[0]?.file ?? null;
   }
@@ -68,7 +84,7 @@ export class DailyNotesService {
       new Notice("Set an archive folder in ProdLife settings first.");
       return 0;
     }
-    const todayPath = moment().format(this.settings().dateFormat);
+    const todayPath = toMoment().format(this.settings().dateFormat);
     const files = this.dailyFiles().filter((file) => file.path.slice(normalizePath(this.settings().dailyFolder).length + 1, -3) !== todayPath);
     let moved = 0;
     for (const file of files) {

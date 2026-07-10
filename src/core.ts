@@ -68,19 +68,24 @@ function structure(lines: string[]): Node {
   const stack: Node[] = [root];
   for (const line of lines) {
     const info = levelOf(line);
+    const current = stack[stack.length - 1];
+    if (!current) continue;
     if (info.kind === "text") {
-      stack.at(-1)?.children.push({ line, children: [], ...info });
+      current.children.push({ line, children: [], ...info });
       continue;
     }
     while (stack.length > 1) {
-      const parent = stack.at(-1)!;
+      const parent = stack[stack.length - 1];
+      if (!parent) break;
       if (info.kind === "task" && parent.kind === "heading") break;
       if (info.kind === "heading" && parent.kind === "task") stack.pop();
       else if (info.level <= parent.level) stack.pop();
       else break;
     }
     const node: Node = { line, children: [], ...info };
-    stack.at(-1)?.children.push(node);
+    const parent = stack[stack.length - 1];
+    if (!parent) continue;
+    parent.children.push(node);
     stack.push(node);
   }
   return root;
@@ -104,7 +109,9 @@ const containsTask = (node: Node): boolean => node.kind === "task" || node.child
 const containsMeaningful = (node: Node): boolean => node.kind === "task" || (node.kind !== "text" && node.children.some(containsMeaningful));
 
 function flatten(node: Node): string[] {
-  return [...(node.line === null ? [] : [node.line]), ...node.children.flatMap(flatten)];
+  const lines = node.line === null ? [] : [node.line];
+  for (const child of node.children) lines.push(...flatten(child));
+  return lines;
 }
 
 export function extractRollover(content: string, removeEmptyHeadings = true): string {
