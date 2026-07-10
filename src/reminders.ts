@@ -1,5 +1,5 @@
-import { App, MarkdownView, Modal, Notice, TFile } from "obsidian";
-import { parseReminders } from "./core";
+import { App, Editor, MarkdownView, Modal, Notice, TFile, TFolder, normalizePath } from "obsidian";
+import { parseReminders, upsertReminder } from "./core";
 import type { ProdLifeData, ProdLifeSettings, ReminderItem } from "./types";
 
 export class ReminderService {
@@ -17,7 +17,7 @@ export class ReminderService {
   async scan(): Promise<ReminderItem[]> {
     if (!this.dirty) return this.cached;
     const reminders: ReminderItem[] = [];
-    for (const file of this.app.vault.getMarkdownFiles()) {
+    for (const file of this.reminderFiles()) {
       const content = await this.app.vault.cachedRead(file);
       reminders.push(...parseReminders(content, file.path, this.settings().defaultReminderTime));
     }
@@ -42,7 +42,7 @@ export class ReminderService {
     this.showing = true;
     state.notified[due.id] = now;
     await this.persist();
-    new ReminderModal(this.app, due, {
+    new ReminderModal(this.app, due, this.settings().snoozeMinutes, {
       complete: async () => this.complete(due),
       snooze: async (minutes) => this.snooze(due, minutes),
       open: async () => this.open(due),
@@ -80,6 +80,28 @@ export class ReminderService {
     view?.editor.setCursor({ line: item.line, ch: 0 });
     view?.editor.scrollIntoView({ from: { line: item.line, ch: 0 }, to: { line: item.line, ch: 0 } }, true);
   }
+
+  editCurrentLine(editor: Editor): void {
+    new ReminderEditorModal(this.app, editor, this.settings().defaultReminderTime, this.settings().linkReminderDates, () => this.invalidate()).open();
+  }
+
+  private reminderFiles(): TFile[] {
+    const folders = this.settings().reminderFolders.map((path) => normalizePath(path.trim())).filter(Boolean);
+    if (!folders.length) return this.app.vault.getMarkdownFiles();
+    const files: TFile[] = [];
+    const visit = (folder: TFolder): void => {
+      for (const child of folder.children) {
+        if (child instanceof TFile && child.extension === "md") files.push(child);
+        else if (child instanceof TFolder) visit(child);
+      }
+    };
+    for (const path of folders) {
+      const item = this.app.vault.getAbstractFileByPath(path);
+      if (item instanceof TFile && item.extension === "md") files.push(item);
+      else if (item instanceof TFolder) visit(item);
+    }
+    return [...new Map(files.map((file) => [file.path, file])).values()];
+  }
 }
 
 interface ReminderActions {
@@ -90,7 +112,7 @@ interface ReminderActions {
 }
 
 class ReminderModal extends Modal {
-  constructor(app: App, private item: ReminderItem, private actions: ReminderActions) { super(app); }
+  constructor(app: App, private item: ReminderItem, private snoozeMinutes: number[], private actions: ReminderActions) { super(app); }
 
   onOpen(): void {
     this.modalEl.addClass("prodlife-reminder-modal");
@@ -105,8 +127,8 @@ class ReminderModal extends Modal {
     open.addEventListener("click", () => { void this.actions.open().then(() => this.close()); });
     const snooze = this.contentEl.createDiv({ cls: "prodlife-snooze" });
     snooze.createSpan({ text: "Remind me in" });
-    for (const [label, minutes] of [["15m", 15], ["1h", 60], ["Tomorrow", 1440]] as const) {
-      const button = snooze.createEl("button", { text: label });
+    for (const minutes of this.snoozeMinutes) {
+      const button = snooze.createEl("button", { text: snoozeLabel(minutes) });
       button.addEventListener("click", () => { void this.actions.snooze(minutes).then(() => this.close()); });
     }
   }
@@ -116,3 +138,47 @@ class ReminderModal extends Modal {
     this.contentEl.empty();
   }
 }
+
+class ReminderEditorModal extends Modal {
+  constructor(
+    app: App,
+    private editor: Editor,
+    private defaultTime: string,
+    private linkDate: boolean,
+    private changed: () => void
+  ) { super(app); }
+
+  onOpen(): void {
+    const cursor = this.editor.getCursor();
+    const line = this.editor.getLine(cursor.line);
+    const existing = parseReminders(line, "current", this.defaultTime)[0];
+    const due = existing ? new Date(existing.due) : new Date();
+    const date = this.contentEl.createEl("input", { type: "date", value: localDate(due) });
+    const time = this.contentEl.createEl("input", { type: "time", value: existing ? localTime(due) : this.defaultTime });
+    this.contentEl.createEl("h2", { text: existing ? "Edit reminder" : "Add reminder" });
+    const fields = this.contentEl.createDiv({ cls: "prodlife-reminder-fields" });
+    fields.append(date, time);
+    const actions = this.contentEl.createDiv({ cls: "prodlife-modal-actions" });
+    const save = actions.createEl("button", { cls: "mod-cta", text: "Save reminder" });
+    save.addEventListener("click", () => {
+      if (!date.value) {
+        new Notice("Choose a reminder date.");
+        return;
+      }
+      this.editor.setLine(cursor.line, upsertReminder(line, date.value, time.value, this.linkDate));
+      this.changed();
+      this.close();
+    });
+    window.setTimeout(() => date.focus(), 0);
+  }
+}
+
+const localDate = (date: Date): string => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+const localTime = (date: Date): string => `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+const snoozeLabel = (minutes: number): string => minutes % 10080 === 0
+  ? `${minutes / 10080}w`
+  : minutes % 1440 === 0
+    ? `${minutes / 1440}d`
+    : minutes % 60 === 0
+      ? `${minutes / 60}h`
+      : `${minutes}m`;

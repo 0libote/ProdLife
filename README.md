@@ -11,6 +11,7 @@ Everything stays local in your vault. ProdLife has no account, analytics, networ
 - **Intelligent rollover:** carry open tasks, nested tasks, and their surrounding headings from the most recent daily note. Completed branches disappear; checked parents remain when they still contain unfinished children.
 - **Recurring tasks:** include a task only when its compact schedule matches the new note's date.
 - **Reminders:** scan the entire vault, notify when a task is due, then complete, open, or snooze it directly.
+- **Reminder editor:** use the command palette or editor context menu to add or update a linked reminder with native date and time inputs.
 - **A progress dashboard:** see upcoming reminders, a 365-day completion heatmap, streaks, active days, and achievements.
 - **A productivity pet:** name your companion and give it a set of short check-in messages.
 - **Archiving:** move old daily notes into an archive folder with one command.
@@ -43,6 +44,8 @@ Reload Obsidian and enable ProdLife under Community plugins. BRAT users can add 
 3. Run **ProdLife: Open dashboard** to see progress and upcoming reminders.
 4. Use the sprout and calendar-check ribbon icons for quick access.
 
+If you already use Daily Notes and Reminder, run **ProdLife: Import Daily Notes and Reminder settings** before changing either plugin. ProdLife imports their compatible settings without modifying any notes.
+
 ## Reminder syntax
 
 ProdLife understands four common formats on Markdown tasks:
@@ -68,6 +71,8 @@ Available variables:
 | `{{previous_note}}` | Vault path to the previous daily note |
 | `{{rollover}}` | Insert rolled tasks at this exact location |
 
+Formatted Daily Notes variables are also supported, including `{{date:YYYY-MM-DD}}`, `{{date:dddd, D MMMM}}`, and `{{time:HH:mm}}`. Unknown placeholders such as `{{daily-five}}` are preserved for the plugin that owns them.
+
 Without `{{rollover}}`, carried work appears under a **Rolled forward** heading at the end of the template.
 
 ### Recurring tasks
@@ -89,6 +94,8 @@ The three fields are **day of month**, **month**, and **day of week** (`0` is Su
 - **Open today's note**
 - **Open dashboard**
 - **Scan reminders now**
+- **Set reminder on current line**
+- **Import Daily Notes and Reminder settings**
 - **Archive old daily notes**
 - **Ask your productivity pet**
 
@@ -98,11 +105,13 @@ Archiving never overwrites an existing file. Files with a destination conflict r
 
 ### From Daily notes
 
-Copy its folder, date format, and template path into ProdLife settings, verify **Open today's note**, then disable the core plugin. Existing notes are left untouched.
+Run **Import Daily Notes and Reminder settings**, verify the imported folder, format, and template, then open today's note through ProdLife. Existing notes and template frontmatter are preserved. ProdLife understands the core plugin's formatted date/time variables.
+
+If you use Daily Five, it currently reads the core Daily Notes configuration. Either leave the core plugin enabled while using ProdLife's commands, or set Daily Five's **Fallback Daily Note folder** and date format to the same values before disabling Daily Notes. This keeps `{{daily-five}}` insertion working.
 
 ### From Reminder
 
-Existing `(@date)`, Kanban, and Obsidian Tasks reminders continue to work. Disable Reminder after confirming the ProdLife reminder list to prevent duplicate alerts.
+Existing `(@date)`, linked `(@[[date]])`, Kanban, and Obsidian Tasks reminders continue to work. The import command carries over the default time, linked-date mode, scan interval, and snooze choices. Confirm the ProdLife reminder list before disabling Reminder to prevent missed or duplicate alerts.
 
 ### From Obligator
 
@@ -110,7 +119,7 @@ ProdLife supports `{{obligate ...}}`, structured task rollover, previous-note li
 
 ## Privacy and safety
 
-ProdLife reads Markdown files to find reminders and calculate local statistics. It writes only when creating a daily note, completing a reminder, or running the archive command. There is no telemetry or external communication.
+ProdLife enumerates Markdown files because vault-wide Reminder compatibility requires finding reminders outside the daily folder. You can restrict this under **Reminder folders**; for example, `Daily, FTL`. Dashboard statistics only read the configured daily and archive folders. ProdLife writes only when creating a daily note, adding or completing a reminder, linking adjacent daily notes, or running the archive command. There is no telemetry or external communication.
 
 Before adopting any new workflow plugin, back up or version-control your vault. ProdLife uses Obsidian's vault and file-manager APIs so changes participate in normal Obsidian file handling.
 

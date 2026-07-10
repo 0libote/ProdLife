@@ -87,7 +87,7 @@ export class DashboardView extends ItemView {
 
   private async loadActivity(app: App): Promise<DayActivity[]> {
     const activity: DayActivity[] = [];
-    for (const file of app.vault.getMarkdownFiles()) {
+    for (const file of this.daily.trackedFiles()) {
       const cache = app.metadataCache.getFileCache(file);
       const prodLifeDate = cache?.frontmatter?.prodlife === true && typeof cache.frontmatter.date === "string"
         ? cache.frontmatter.date

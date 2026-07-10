@@ -150,7 +150,14 @@ export function scheduleMatches(expression: string, date: Date): boolean {
   return (!day || day.has(date.getDate())) && (!month || month.has(date.getMonth() + 1)) && (!weekday || weekday.has(date.getDay()));
 }
 
-export function renderTemplate(template: string, date: Date, title: string, previousPath = "", nextPath = ""): string {
+export function renderTemplate(
+  template: string,
+  date: Date,
+  title: string,
+  previousPath = "",
+  nextPath = "",
+  format = (pattern: string): string => basicDateFormat(date, pattern)
+): string {
   const pad = (value: number) => String(value).padStart(2, "0");
   const iso = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
   const time = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
@@ -164,11 +171,40 @@ export function renderTemplate(template: string, date: Date, title: string, prev
   }
   return [...lines, ...scheduled]
     .join("\n")
-    .replace(/{{\s*date\s*}}/gi, iso)
-    .replace(/{{\s*time\s*}}/gi, time)
+    .replace(/{{\s*date(?::([^}]+))?\s*}}/gi, (_, pattern: string | undefined) => pattern ? format(pattern.trim()) : iso)
+    .replace(/{{\s*time(?::([^}]+))?\s*}}/gi, (_, pattern: string | undefined) => pattern ? format(pattern.trim()) : time)
     .replace(/{{\s*title\s*}}/gi, title)
     .replace(/{{\s*previous_note(?:_path)?\s*}}/gi, previousPath)
     .replace(/{{\s*next_note(?:_path)?\s*}}/gi, nextPath);
+}
+
+function basicDateFormat(date: Date, pattern: string): string {
+  const values: Record<string, string> = {
+    YYYY: String(date.getFullYear()),
+    MM: String(date.getMonth() + 1).padStart(2, "0"),
+    DD: String(date.getDate()).padStart(2, "0"),
+    HH: String(date.getHours()).padStart(2, "0"),
+    mm: String(date.getMinutes()).padStart(2, "0")
+  };
+  return pattern.replace(/YYYY|MM|DD|HH|mm/g, (token) => values[token] ?? token);
+}
+
+export function upsertReminder(line: string, date: string, time: string, linkDate = true): string {
+  const due = `(@${linkDate ? `[[${date}]]` : date}${time ? ` ${time}` : ""})`;
+  const existing = /\(@[^)]+\)/;
+  return existing.test(line) ? line.replace(existing, due) : `${line.trimEnd()} ${due}`;
+}
+
+export function ensureDailyFrontmatter(content: string, date: string): string {
+  if (!content.startsWith("---\n")) return `---\nprodlife: true\ndate: ${date}\n---\n\n${content}`;
+  const end = content.indexOf("\n---", 4);
+  if (end === -1) return `---\nprodlife: true\ndate: ${date}\n---\n\n${content}`;
+  const frontmatter = content.slice(4, end);
+  const additions = [
+    /^prodlife\s*:/m.test(frontmatter) ? "" : "prodlife: true",
+    /^date\s*:/m.test(frontmatter) ? "" : `date: ${date}`
+  ].filter(Boolean).join("\n");
+  return additions ? `${content.slice(0, end)}\n${additions}${content.slice(end)}` : content;
 }
 
 export function activityFromContent(date: string, content: string): DayActivity {

@@ -1,5 +1,5 @@
 import { App, Notice, TFile, TFolder, moment as obsidianMoment, normalizePath } from "obsidian";
-import { extractRollover, renderTemplate } from "./core";
+import { ensureDailyFrontmatter, extractRollover, renderTemplate } from "./core";
 import type { ProdLifeSettings } from "./types";
 
 interface MomentValue {
@@ -41,12 +41,13 @@ export class DailyNotesService {
       const previousContent = previous ? await this.app.vault.cachedRead(previous) : "";
       const template = await this.readTemplate(date);
       const previousPath = previous?.path.replace(/\.md$/, "") ?? "";
-      const base = renderTemplate(template, date, title, previousPath);
+      const base = renderTemplate(template, date, title, previousPath, "", (pattern) => toMoment(date).format(pattern));
       const rollover = settings.rolloverTasks && previousContent
         ? this.cleanRollover(extractRollover(previousContent.replace(/\n---\n← \[\[[^\n]+\]\]\s*$/, ""), settings.removeEmptyHeadings), previous)
         : "";
       const content = this.compose(base, rollover, toMoment(date).format("YYYY-MM-DD"), previousPath);
       const file = await this.app.vault.create(path, content);
+      await this.linkPreviousToNext(previous, file);
       await this.app.workspace.getLeaf(false).openFile(file);
       new Notice(`ProdLife created ${title}.`);
       return file;
@@ -59,13 +60,21 @@ export class DailyNotesService {
 
   dailyFiles(): TFile[] {
     const folder = normalizePath(this.settings().dailyFolder);
-    return this.app.vault.getMarkdownFiles().filter((file) => file.path.startsWith(`${folder}/`) && this.dateFor(file) !== null);
+    return this.filesIn(folder).filter((file) => this.dateFor(file) !== null);
+  }
+
+  trackedFiles(): TFile[] {
+    const paths = [normalizePath(this.settings().dailyFolder)];
+    const archive = normalizePath(this.settings().archiveFolder);
+    if (archive) paths.push(archive);
+    const files: TFile[] = [];
+    for (const path of paths) files.push(...this.filesIn(path));
+    return [...new Map(files.map((file) => [file.path, file])).values()];
   }
 
   dateFor(file: TFile): string | null {
-    const folder = normalizePath(this.settings().dailyFolder);
-    if (!file.path.startsWith(`${folder}/`)) return null;
-    const relative = file.path.slice(folder.length + 1, -3);
+    const relative = this.relativeDailyPath(file);
+    if (relative === null) return null;
     const parsed = toMoment(relative, this.settings().dateFormat, true);
     return parsed.isValid() ? parsed.format("YYYY-MM-DD") : null;
   }
@@ -73,7 +82,7 @@ export class DailyNotesService {
   findPrevious(date: Date): TFile | null {
     const before = toMoment(date).startOf("day");
     return this.dailyFiles()
-      .map((file) => ({ file, date: toMoment(file.path.slice(normalizePath(this.settings().dailyFolder).length + 1, -3), this.settings().dateFormat, true) }))
+      .map((file) => ({ file, date: toMoment(this.relativeDailyPath(file) ?? "", this.settings().dateFormat, true) }))
       .filter((entry) => entry.date.isValid() && entry.date.isBefore(before))
       .sort((a, b) => b.date.valueOf() - a.date.valueOf())[0]?.file ?? null;
   }
@@ -85,10 +94,10 @@ export class DailyNotesService {
       return 0;
     }
     const todayPath = toMoment().format(this.settings().dateFormat);
-    const files = this.dailyFiles().filter((file) => file.path.slice(normalizePath(this.settings().dailyFolder).length + 1, -3) !== todayPath);
+    const files = this.dailyFiles().filter((file) => this.relativeDailyPath(file) !== todayPath);
     let moved = 0;
     for (const file of files) {
-      const relative = file.path.slice(normalizePath(this.settings().dailyFolder).length + 1);
+      const relative = `${this.relativeDailyPath(file) ?? file.basename}.md`;
       const destination = normalizePath(`${archiveFolder}/${relative}`);
       if (this.app.vault.getAbstractFileByPath(destination)) continue;
       await this.ensureFolder(destination.substring(0, destination.lastIndexOf("/")));
@@ -118,8 +127,39 @@ export class DailyNotesService {
     const withRollover = template.includes("{{rollover}}")
       ? template.replace(/{{\s*rollover\s*}}/gi, rollover)
       : `${template.trim()}${rollover ? `\n\n## Rolled forward\n\n${rollover}` : ""}`;
-    const frontmatter = `---\nprodlife: true\ndate: ${isoDate}\n---`;
-    return `${frontmatter}\n\n${withRollover.trim()}${navigation ? `\n\n---\n${navigation}` : ""}\n`;
+    return `${ensureDailyFrontmatter(withRollover.trim(), isoDate)}${navigation ? `\n\n---\n${navigation}` : ""}\n`;
+  }
+
+  private filesIn(path: string): TFile[] {
+    const root = path ? this.app.vault.getAbstractFileByPath(path) : this.app.vault.getRoot();
+    if (!(root instanceof TFolder)) return [];
+    const files: TFile[] = [];
+    const visit = (folder: TFolder): void => {
+      for (const child of folder.children) {
+        if (child instanceof TFile && child.extension === "md") files.push(child);
+        else if (child instanceof TFolder) visit(child);
+      }
+    };
+    visit(root);
+    return files;
+  }
+
+  private relativeDailyPath(file: TFile): string | null {
+    const folder = normalizePath(this.settings().dailyFolder);
+    if (!folder) return file.path.slice(0, -3);
+    return file.path.startsWith(`${folder}/`) ? file.path.slice(folder.length + 1, -3) : null;
+  }
+
+  private async linkPreviousToNext(previous: TFile | null, next: TFile): Promise<void> {
+    if (!previous) return;
+    const nextPath = next.path.replace(/\.md$/, "");
+    await this.app.vault.process(previous, (content) => {
+      if (content.includes(`[[${nextPath}|Next]]`)) return content;
+      const nextLink = `[[${nextPath}|Next]] →`;
+      return /\n---\n← \[\[[^\n]+\]\]\s*$/.test(content)
+        ? content.replace(/(\n---\n← \[\[[^\n]+\]\])\s*$/, `$1 · ${nextLink}\n`)
+        : `${content.trimEnd()}\n\n---\n${nextLink}\n`;
+    });
   }
 
   private cleanRollover(content: string, previous: TFile | null): string {

@@ -214,6 +214,8 @@
 .prodlife-reminder-title { margin: 0 0 4px; font-size: 17px; font-weight: 650; }
 .prodlife-reminder-modal small { color: var(--text-muted); }
 .prodlife-modal-actions, .prodlife-snooze { display: flex; justify-content: center; gap: 8px; margin-top: 22px; }
+.prodlife-reminder-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 18px; }
+.prodlife-reminder-fields input { width: 100%; }
 .prodlife-snooze { align-items: center; margin-top: 10px; }
 .prodlife-snooze span { margin-right: 3px; color: var(--text-muted); font-size: 11px; }
 .prodlife-snooze button { padding: 4px 9px; font-size: 11px; }

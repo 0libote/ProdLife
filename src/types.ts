@@ -8,7 +8,10 @@ export interface ProdLifeSettings {
   archiveFolder: string;
   reminderIntervalSeconds: number;
   defaultReminderTime: string;
+  linkReminderDates: boolean;
+  reminderFolders: string[];
   remindersEnabled: boolean;
+  snoozeMinutes: number[];
   petEnabled: boolean;
   petName: string;
   petCheckInMinutes: number;
@@ -25,7 +28,10 @@ export const DEFAULT_SETTINGS: ProdLifeSettings = {
   archiveFolder: "",
   reminderIntervalSeconds: 30,
   defaultReminderTime: "09:00",
+  linkReminderDates: true,
+  reminderFolders: [],
   remindersEnabled: true,
+  snoozeMinutes: [30, 60, 180, 1440, 10080],
   petEnabled: true,
   petName: "Pip",
   petCheckInMinutes: 90,
@@ -65,4 +71,3 @@ export interface ProdLifeData {
   snoozedUntil: Record<string, number>;
   notified: Record<string, number>;
 }
-

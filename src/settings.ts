@@ -11,6 +11,15 @@ export class ProdLifeSettingTab extends PluginSettingTab {
     containerEl.empty();
     containerEl.createEl("p", { text: "One system for daily notes, reminders, and sustainable momentum." });
 
+    new Setting(containerEl)
+      .setName("Import your current workflow")
+      .setDesc("Copies the core Daily Notes folder, format, and template plus Reminder's default time, linked-date preference, interval, and snooze options into ProdLife. Your notes are not changed.")
+      .addButton((button) => button.setButtonText("Import settings").onClick(() => void this.plugin.importLegacySettings()));
+    containerEl.createEl("p", {
+      cls: "setting-item-description",
+      text: "Daily Five compatibility: before disabling the core Daily Notes plugin, set Daily Five’s fallback folder and date format to the same values shown below. You may also leave the core plugin enabled and simply use ProdLife’s commands."
+    });
+
     new Setting(containerEl).setName("Daily notes").setHeading();
     new Setting(containerEl)
       .setName("Daily notes folder")
@@ -60,6 +69,27 @@ export class ProdLifeSettingTab extends PluginSettingTab {
       .setName("Default reminder time")
       .setDesc("Time used for reminders that specify a date without a time.")
       .addText((text) => text.setPlaceholder("09:00").setValue(this.plugin.settings.defaultReminderTime).onChange((value) => this.save("defaultReminderTime", /^\d{1,2}:\d{2}$/.test(value) ? value : "09:00")));
+    new Setting(containerEl)
+      .setName("Link reminder dates")
+      .setDesc("New reminders use linked dates such as (@[[2026-07-12]] 09:30), matching Reminder's linked-date mode.")
+      .addToggle((toggle) => toggle.setValue(this.plugin.settings.linkReminderDates).onChange((value) => this.save("linkReminderDates", value)));
+    new Setting(containerEl)
+      .setName("Reminder folders")
+      .setDesc("Comma-separated folders or files to scan. Leave blank to scan Markdown files across the vault, which matches Reminder's behavior.")
+      .addText((text) => text
+        .setPlaceholder("Daily, FTL")
+        .setValue(this.plugin.settings.reminderFolders.join(", "))
+        .onChange((value) => this.save("reminderFolders", value.split(",").map((path) => path.trim()).filter(Boolean))));
+    new Setting(containerEl)
+      .setName("Snooze options")
+      .setDesc("Comma-separated delay choices in minutes. 1440 is one day and 10080 is one week.")
+      .addText((text) => text
+        .setPlaceholder("30, 60, 180, 1440, 10080")
+        .setValue(this.plugin.settings.snoozeMinutes.join(", "))
+        .onChange((value) => {
+          const minutes = value.split(",").map(Number).filter((item) => Number.isFinite(item) && item > 0);
+          if (minutes.length) void this.save("snoozeMinutes", minutes);
+        }));
     new Setting(containerEl)
       .setName("Scan interval")
       .setDesc("Seconds between reminder checks. Takes effect after reloading the plugin.")

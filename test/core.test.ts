@@ -3,11 +3,13 @@ import test from "node:test";
 import {
   activityFromContent,
   calculateStreak,
+  ensureDailyFrontmatter,
   extractRollover,
   parseLocalDate,
   parseReminders,
   renderTemplate,
-  scheduleMatches
+  scheduleMatches,
+  upsertReminder
 } from "../src/core";
 
 test("parses supported reminder formats and ignores completed tasks", () => {
@@ -44,6 +46,22 @@ test("renders weekday schedules and template variables", () => {
   const output = renderTemplate("# {{title}}\n{{schedule * * 1-5}}\n- [ ] Weekday review", monday, "2026-07-06", "Daily/prev");
   assert.equal(output, "# 2026-07-06\n- [ ] Weekday review");
   assert.equal(scheduleMatches("{{obligate * * 0}}", monday), false);
+});
+
+test("renders formatted Daily Notes variables", () => {
+  const date = new Date(2026, 6, 10, 8, 5);
+  const output = renderTemplate("{{date:YYYY/MM/DD}} {{time:HH:mm}}", date, "title");
+  assert.equal(output, "2026/07/10 08:05");
+});
+
+test("adds and updates linked reminders", () => {
+  assert.equal(upsertReminder("- [ ] Call Sam", "2026-07-12", "09:30"), "- [ ] Call Sam (@[[2026-07-12]] 09:30)");
+  assert.equal(upsertReminder("- [ ] Call Sam (@2026-07-11)", "2026-07-12", ""), "- [ ] Call Sam (@[[2026-07-12]])");
+});
+
+test("merges ProdLife fields into existing template frontmatter", () => {
+  const result = ensureDailyFrontmatter("---\ntags:\n  - daily\n---\n## Today", "2026-07-10");
+  assert.equal(result, "---\ntags:\n  - daily\nprodlife: true\ndate: 2026-07-10\n---\n## Today");
 });
 
 test("calculates activity and a consecutive streak", () => {
