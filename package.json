@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "node esbuild.config.mjs",
     "build": "tsc --noEmit && node esbuild.config.mjs production",
-    "test": "rm -rf .test-build && esbuild test/core.test.ts --bundle --platform=node --format=esm --outdir=.test-build && node --test .test-build/core.test.js",
+    "test": "rm -rf .test-build && esbuild test/core.test.ts --bundle --platform=node --format=esm --out-extension:.js=.mjs --outdir=.test-build && node --test .test-build/core.test.mjs",
     "check": "npm run test && npm run build",
     "version": "node version-bump.mjs && git add manifest.json versions.json"
   },
@@ -19,4 +19,3 @@
     "typescript": "^5.7.0"
   }
 }
-
