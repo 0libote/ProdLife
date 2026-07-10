@@ -27,9 +27,9 @@ export class DailyNotesService {
       const previousPath = previous?.path.replace(/\.md$/, "") ?? "";
       const base = renderTemplate(template, date, title, previousPath);
       const rollover = settings.rolloverTasks && previousContent
-        ? extractRollover(previousContent, settings.removeEmptyHeadings)
+        ? this.cleanRollover(extractRollover(previousContent.replace(/\n---\n← \[\[[^\n]+\]\]\s*$/, ""), settings.removeEmptyHeadings), previous)
         : "";
-      const content = this.compose(base, rollover, title, previousPath);
+      const content = this.compose(base, rollover, moment(date).format("YYYY-MM-DD"), previousPath);
       const file = await this.app.vault.create(path, content);
       await this.app.workspace.getLeaf(false).openFile(file);
       new Notice(`ProdLife created ${title}.`);
@@ -48,7 +48,8 @@ export class DailyNotesService {
 
   dateFor(file: TFile): string | null {
     const folder = normalizePath(this.settings().dailyFolder);
-    const relative = file.path.startsWith(`${folder}/`) ? file.path.slice(folder.length + 1, -3) : file.basename;
+    if (!file.path.startsWith(`${folder}/`)) return null;
+    const relative = file.path.slice(folder.length + 1, -3);
     const parsed = moment(relative, this.settings().dateFormat, true);
     return parsed.isValid() ? parsed.format("YYYY-MM-DD") : null;
   }
@@ -96,13 +97,20 @@ export class DailyNotesService {
     return this.app.vault.cachedRead(file);
   }
 
-  private compose(template: string, rollover: string, title: string, previousPath: string): string {
+  private compose(template: string, rollover: string, isoDate: string, previousPath: string): string {
     const navigation = previousPath ? `← [[${previousPath}|Previous]]` : "";
     const withRollover = template.includes("{{rollover}}")
       ? template.replace(/{{\s*rollover\s*}}/gi, rollover)
       : `${template.trim()}${rollover ? `\n\n## Rolled forward\n\n${rollover}` : ""}`;
-    const frontmatter = `---\nprodlife: true\ndate: ${title}\n---`;
+    const frontmatter = `---\nprodlife: true\ndate: ${isoDate}\n---`;
     return `${frontmatter}\n\n${withRollover.trim()}${navigation ? `\n\n---\n${navigation}` : ""}\n`;
+  }
+
+  private cleanRollover(content: string, previous: TFile | null): string {
+    if (!previous) return content;
+    const lines = content.split("\n");
+    if (lines[0]?.trim() === `# ${previous.basename}`) lines.shift();
+    return lines.join("\n").trim();
   }
 
   private async ensureFolder(path: string): Promise<void> {

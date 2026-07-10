@@ -1,4 +1,4 @@
-import { App, ItemView, Notice, WorkspaceLeaf, setIcon } from "obsidian";
+import { App, ItemView, WorkspaceLeaf, setIcon } from "obsidian";
 import { achievementsFor, activityFromContent, calculateStreak } from "./core";
 import type { DailyNotesService } from "./daily-notes";
 import type { ReminderService } from "./reminders";
@@ -42,7 +42,7 @@ export class DashboardView extends ItemView {
     const pet = hero.createDiv({ cls: "prodlife-pet-card" });
     pet.createDiv({ cls: streak ? "prodlife-pet prodlife-pet--happy" : "prodlife-pet", text: streak ? "◆" : "◇" });
     pet.createEl("strong", { text: this.settings().petName });
-    pet.createEl("span", { text: petMessage(streak, todayActivity?.completed ?? 0) });
+    pet.createSpan({ text: petMessage(streak, todayActivity?.completed ?? 0) });
 
     const metrics = root.createDiv({ cls: "prodlife-metrics" });
     metric(metrics, "flame", String(streak), "day streak");
@@ -63,7 +63,7 @@ export class DashboardView extends ItemView {
       setIcon(icon, achievement.unlocked ? "award" : "lock-keyhole");
       const copy = row.createDiv();
       copy.createEl("strong", { text: achievement.name });
-      copy.createEl("span", { text: achievement.description });
+      copy.createSpan({ text: achievement.description });
     }
 
     const reminderPanel = root.createDiv({ cls: "prodlife-panel prodlife-reminders" });
@@ -77,11 +77,11 @@ export class DashboardView extends ItemView {
     for (const item of reminders) {
       const row = reminderPanel.createDiv({ cls: `prodlife-reminder-row${item.due < Date.now() ? " is-overdue" : ""}` });
       const complete = row.createEl("button", { cls: "prodlife-task-check", attr: { "aria-label": `Complete ${item.text}` } });
-      complete.addEventListener("click", async () => { await this.reminders.complete(item); await this.render(); });
+      complete.addEventListener("click", () => { void this.reminders.complete(item).then(() => this.render()); });
       const copy = row.createDiv({ cls: "prodlife-reminder-copy" });
       const title = copy.createEl("button", { text: item.text });
       title.addEventListener("click", () => void this.reminders.open(item));
-      copy.createEl("span", { text: `${new Date(item.due).toLocaleString()} · ${item.path}` });
+      copy.createSpan({ text: `${new Date(item.due).toLocaleString()} · ${item.path}` });
     }
   }
 
@@ -89,7 +89,10 @@ export class DashboardView extends ItemView {
     const activity: DayActivity[] = [];
     for (const file of app.vault.getMarkdownFiles()) {
       const cache = app.metadataCache.getFileCache(file);
-      const date = typeof cache?.frontmatter?.date === "string" ? cache.frontmatter.date : this.daily.dateFor(file);
+      const prodLifeDate = cache?.frontmatter?.prodlife === true && typeof cache.frontmatter.date === "string"
+        ? cache.frontmatter.date
+        : null;
+      const date = prodLifeDate ?? this.daily.dateFor(file);
       if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
       activity.push(activityFromContent(date, await app.vault.cachedRead(file)));
     }
@@ -103,7 +106,7 @@ function metric(parent: HTMLElement, iconName: string, value: string, label: str
   setIcon(icon, iconName);
   const copy = item.createDiv();
   copy.createEl("strong", { text: value });
-  copy.createEl("span", { text: label });
+  copy.createSpan({ text: label });
 }
 
 function renderHeatmap(parent: HTMLElement, activity: DayActivity[], today: Date): void {

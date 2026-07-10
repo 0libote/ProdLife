@@ -4,6 +4,8 @@ import type { ProdLifeData, ProdLifeSettings, ReminderItem } from "./types";
 
 export class ReminderService {
   private showing = false;
+  private dirty = true;
+  private cached: ReminderItem[] = [];
 
   constructor(
     private app: App,
@@ -13,13 +15,18 @@ export class ReminderService {
   ) {}
 
   async scan(): Promise<ReminderItem[]> {
+    if (!this.dirty) return this.cached;
     const reminders: ReminderItem[] = [];
     for (const file of this.app.vault.getMarkdownFiles()) {
       const content = await this.app.vault.cachedRead(file);
       reminders.push(...parseReminders(content, file.path, this.settings().defaultReminderTime));
     }
-    return reminders.sort((a, b) => a.due - b.due);
+    this.cached = reminders.sort((a, b) => a.due - b.due);
+    this.dirty = false;
+    return this.cached;
   }
+
+  invalidate(): void { this.dirty = true; }
 
   async checkDue(): Promise<void> {
     if (!this.settings().remindersEnabled || this.showing) return;
@@ -93,14 +100,14 @@ class ReminderModal extends Modal {
     this.contentEl.createEl("small", { text: `Due ${new Date(this.item.due).toLocaleString()}` });
     const actions = this.contentEl.createDiv({ cls: "prodlife-modal-actions" });
     const done = actions.createEl("button", { cls: "mod-cta", text: "Mark done" });
-    done.addEventListener("click", async () => { await this.actions.complete(); this.close(); });
+    done.addEventListener("click", () => { void this.actions.complete().then(() => this.close()); });
     const open = actions.createEl("button", { text: "Open task" });
-    open.addEventListener("click", async () => { await this.actions.open(); this.close(); });
+    open.addEventListener("click", () => { void this.actions.open().then(() => this.close()); });
     const snooze = this.contentEl.createDiv({ cls: "prodlife-snooze" });
     snooze.createSpan({ text: "Remind me in" });
     for (const [label, minutes] of [["15m", 15], ["1h", 60], ["Tomorrow", 1440]] as const) {
       const button = snooze.createEl("button", { text: label });
-      button.addEventListener("click", async () => { await this.actions.snooze(minutes); this.close(); });
+      button.addEventListener("click", () => { void this.actions.snooze(minutes).then(() => this.close()); });
     }
   }
 

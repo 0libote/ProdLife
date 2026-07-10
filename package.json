@@ -6,16 +6,23 @@
   "scripts": {
     "dev": "node esbuild.config.mjs",
     "build": "tsc --noEmit && node esbuild.config.mjs production",
+    "lint": "eslint .",
     "test": "rm -rf .test-build && esbuild test/core.test.ts --bundle --platform=node --format=esm --out-extension:.js=.mjs --outdir=.test-build && node --test .test-build/core.test.mjs",
-    "check": "npm run test && npm run build",
+    "check": "npm run test && npm run lint && npm run build",
     "version": "node version-bump.mjs && git add manifest.json versions.json"
   },
   "keywords": ["obsidian", "daily-notes", "reminders", "productivity"],
   "license": "MIT",
   "devDependencies": {
+    "@eslint/js": "^9.39.4",
     "@types/node": "^22.0.0",
     "esbuild": "^0.25.0",
+    "eslint": "^9.39.4",
+    "eslint-plugin-obsidianmd": "^0.4.0",
+    "globals": "^17.6.0",
+    "jiti": "^2.6.1",
     "obsidian": "^1.8.7",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.59.1"
   }
 }

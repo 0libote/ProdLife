@@ -47,8 +47,12 @@ test("renders weekday schedules and template variables", () => {
 });
 
 test("calculates activity and a consecutive streak", () => {
-  const first = activityFromContent("2026-07-09", "- [x] A\n- [ ] B");
+  const first = activityFromContent("2026-07-09", "- [x] A\n- [ ] B\n- [ ] ");
   const second = activityFromContent("2026-07-10", "- [x] C");
   assert.deepEqual(first, { date: "2026-07-09", completed: 1, total: 2 });
   assert.equal(calculateStreak([first, second], new Date(2026, 6, 10)), 2);
+});
+
+test("does not roll an untouched task placeholder", () => {
+  assert.equal(extractRollover("# Focus\n- [ ] \n# Work\n- [ ] Real task"), "# Work\n- [ ] Real task");
 });

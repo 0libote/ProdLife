@@ -46,10 +46,6 @@ export default class ProdLifePlugin extends Plugin {
     this.app.workspace.onLayoutReady(() => void this.reminders.checkDue());
   }
 
-  onunload(): void {
-    this.app.workspace.detachLeavesOfType(DASHBOARD_VIEW);
-  }
-
   async loadSettings(): Promise<void> {
     const stored = (await this.loadData()) as Partial<ProdLifeData> | null;
     this.settings = {
@@ -67,6 +63,7 @@ export default class ProdLifePlugin extends Plugin {
 
   async saveSettings(): Promise<void> {
     this.data.settings = this.settings;
+    this.reminders?.invalidate();
     await this.persistData();
   }
 
@@ -78,13 +75,14 @@ export default class ProdLifePlugin extends Plugin {
     const existing = this.app.workspace.getLeavesOfType(DASHBOARD_VIEW)[0];
     const leaf = existing ?? this.app.workspace.getLeaf("tab");
     if (!existing) await leaf.setViewState({ type: DASHBOARD_VIEW, active: true });
-    this.app.workspace.revealLeaf(leaf);
+    await this.app.workspace.revealLeaf(leaf);
     const view = leaf.view;
     if (view instanceof DashboardView) await view.render();
   }
 
   private onVaultChange(file: TAbstractFile): void {
     if (!(file instanceof TFile) || file.extension !== "md") return;
+    this.reminders.invalidate();
     if (this.renderTimer !== null) window.clearTimeout(this.renderTimer);
     this.renderTimer = window.setTimeout(() => {
       this.renderTimer = null;

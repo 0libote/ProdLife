@@ -25,15 +25,15 @@ export function parseReminders(content: string, path: string, defaultTime = "09:
     const task = line.match(TASK);
     if (!task) return;
     const body = task[3] ?? "";
-    const raw = body.match(/\(@([^\)]+)\)/)?.[1]
+    const raw = body.match(/\(@([^)]+)\)/)?.[1]
       ?? body.match(/@\{([^}]+)\}/)?.[1]
       ?? body.match(/⏰\s*(\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:?\d{0,2})?)/)?.[1]
-      ?? body.match(/[📅📆🗓]\s*(\d{4}-\d{2}-\d{2})/)?.[1];
+      ?? body.match(/[📅📆🗓]\s*(\d{4}-\d{2}-\d{2})/u)?.[1];
     if (!raw) return;
     const due = parseLocalDate(raw, defaultTime);
     if (due === null) return;
     const text = body
-      .replace(/\(@[^\)]+\)|@\{[^}]+\}|[⏰📅📆🗓]\s*\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:?\d{0,2})?/, "")
+      .replace(/\(@[^)]+\)|@\{[^}]+\}|[⏰📅📆🗓]\s*\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:?\d{0,2})?/u, "")
       .trim();
     reminders.push({
       id: `${path}:${index}:${raw}`,
@@ -91,6 +91,8 @@ function keepNode(node: Node, removeEmptyHeadings: boolean): Node | null {
   if (node.kind === "task") {
     const checked = /^\s*[-*+]\s+\[[xX]\]/.test(node.line ?? "");
     const hasOpenDescendant = children.some((child) => child.kind === "task" || containsTask(child));
+    const blank = /^\s*[-*+]\s+\[[^\]]\]\s*$/.test(node.line ?? "");
+    if (blank && !hasOpenDescendant) return null;
     if (checked && !hasOpenDescendant) return null;
   }
   if (node.kind === "heading" && removeEmptyHeadings && !children.some(containsMeaningful)) return null;
@@ -168,6 +170,7 @@ export function activityFromContent(date: string, content: string): DayActivity 
   for (const line of content.split("\n")) {
     const task = line.match(TASK);
     if (!task) continue;
+    if (!task[3]?.trim()) continue;
     total++;
     if (/[xX]/.test(task[2] ?? "")) completed++;
   }

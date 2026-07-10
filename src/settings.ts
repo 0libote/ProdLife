@@ -9,10 +9,9 @@ export class ProdLifeSettingTab extends PluginSettingTab {
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
-    containerEl.createEl("h1", { text: "ProdLife" });
     containerEl.createEl("p", { text: "One system for daily notes, reminders, and sustainable momentum." });
 
-    containerEl.createEl("h2", { text: "Daily notes" });
+    new Setting(containerEl).setName("Daily notes").setHeading();
     new Setting(containerEl)
       .setName("Daily notes folder")
       .setDesc("Folder where ProdLife creates daily notes. Nested date formats are supported.")
@@ -38,7 +37,7 @@ export class ProdLifeSettingTab extends PluginSettingTab {
       .setDesc("Optional destination used by the Archive old daily notes command.")
       .addText((text) => text.setPlaceholder("Archive/Daily").setValue(this.plugin.settings.archiveFolder).onChange((value) => this.save("archiveFolder", value.trim())));
 
-    containerEl.createEl("h3", { text: "Templates by weekday" });
+    new Setting(containerEl).setName("Templates by weekday").setHeading();
     containerEl.createEl("p", { cls: "setting-item-description", text: "A weekday template overrides the default template on that day." });
     DAYS.forEach((day, index) => {
       new Setting(containerEl)
@@ -52,7 +51,7 @@ export class ProdLifeSettingTab extends PluginSettingTab {
           }));
     });
 
-    containerEl.createEl("h2", { text: "Reminders" });
+    new Setting(containerEl).setName("Reminders").setHeading();
     new Setting(containerEl)
       .setName("Enable reminders")
       .setDesc("Check the vault for due reminders and show actionable notifications inside Obsidian.")
@@ -64,9 +63,9 @@ export class ProdLifeSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Scan interval")
       .setDesc("Seconds between reminder checks. Takes effect after reloading the plugin.")
-      .addSlider((slider) => slider.setLimits(15, 300, 15).setDynamicTooltip().setValue(this.plugin.settings.reminderIntervalSeconds).onChange((value) => this.save("reminderIntervalSeconds", value)));
+      .addSlider((slider) => slider.setLimits(15, 300, 15).setValue(this.plugin.settings.reminderIntervalSeconds).onChange((value) => this.save("reminderIntervalSeconds", value)));
 
-    containerEl.createEl("h2", { text: "Productivity pet" });
+    new Setting(containerEl).setName("Productivity pet").setHeading();
     new Setting(containerEl)
       .setName("Enable pet check-ins")
       .setDesc("Let your pet occasionally offer a small prompt or encouraging thought.")
@@ -77,7 +76,7 @@ export class ProdLifeSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("Check-in frequency")
       .setDesc("Minutes between pet check-ins. Takes effect after reloading the plugin.")
-      .addSlider((slider) => slider.setLimits(30, 240, 15).setDynamicTooltip().setValue(this.plugin.settings.petCheckInMinutes).onChange((value) => this.save("petCheckInMinutes", value)));
+      .addSlider((slider) => slider.setLimits(30, 240, 15).setValue(this.plugin.settings.petCheckInMinutes).onChange((value) => this.save("petCheckInMinutes", value)));
     new Setting(containerEl)
       .setName("Pet quotes")
       .setDesc("One message per line. The pet chooses one at random.")
@@ -85,7 +84,7 @@ export class ProdLifeSettingTab extends PluginSettingTab {
         .setValue(this.plugin.settings.quotes.join("\n"))
         .onChange((value) => this.save("quotes", value.split("\n").map((line) => line.trim()).filter(Boolean))));
 
-    containerEl.createEl("h2", { text: "Template reference" });
+    new Setting(containerEl).setName("Template reference").setHeading();
     const reference = containerEl.createEl("pre");
     reference.createEl("code", { text: "{{date}}  {{time}}  {{title}}  {{previous_note}}  {{rollover}}\n{{schedule * * 1-5}}\n- [ ] Runs Monday to Friday" });
   }
