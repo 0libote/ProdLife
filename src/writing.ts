@@ -11,7 +11,8 @@ export class WritingTracker {
     private settings: () => ProdLifeSettings,
     private data: () => ProdLifeData,
     private persist: () => Promise<void>,
-    private dateForDailyFile: (file: TFile) => string | null
+    private dateForDailyFile: (file: TFile) => string | null,
+    private changed: () => void
   ) {}
 
   async initialize(): Promise<void> {
@@ -30,6 +31,7 @@ export class WritingTracker {
     state.writingInitialized = true;
     this.ready = true;
     await this.persist();
+    this.changed();
   }
 
   schedule(file: TFile): void {
@@ -48,6 +50,7 @@ export class WritingTracker {
     this.timers.delete(path);
     delete this.data().writingFiles[path];
     void this.persist();
+    this.changed();
   }
 
   rename(file: TFile, oldPath: string): void {
@@ -76,6 +79,7 @@ export class WritingTracker {
       state.writingHistory[date] = day;
     }
     await this.persist();
+    this.changed();
   }
 
   private files(): TFile[] {

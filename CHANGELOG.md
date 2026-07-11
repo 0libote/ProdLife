@@ -2,6 +2,27 @@
 
 All notable changes to ProdLife are documented here.
 
+## 1.1.0 - 2026-07-11
+
+### Added
+
+- Compact date-grouped reminder sidebar based on Reminder's proven layout.
+- Obsidian Markdown rendering for reminder titles and wikilinks across the dashboard, sidebar, and notification UI.
+- Full calendar reminder editor with month navigation, time selection, quick Today action, and all-day tasks.
+- Default and weekday templates on one settings row plus a guided daily-template task builder.
+- Automatic daily-note archiving the next day or after a configurable retention period.
+- Append-only word tracking with first-run backfill, per-file baselines, folder scope, and deletion-proof history.
+- Responsive month/year writing heatmaps with date navigation and no horizontal scrollbar.
+- User-controlled dashboard section visibility and ordering.
+- Forty-eight achievements across tasks, writing, streaks, and consistency with progress, unlock dates, collection UI, and unlock popups.
+- Configurable sync-safe startup delay before reminders and automatic archiving run.
+- Pixel-art Pip character and speech-bubble check-ins.
+
+### Changed
+
+- Dashboard surfaces, spacing, typography, interactions, and responsive behavior were redesigned around a lighter editorial hierarchy.
+- Minimum supported Obsidian version is now 1.10.0 for the current Markdown rendering API.
+
 ## 1.0.1 - 2026-07-10
 
 ### Fixed

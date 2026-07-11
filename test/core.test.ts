@@ -32,6 +32,16 @@ test("parses supported reminder formats and ignores completed tasks", () => {
   assert.equal(reminders[1]?.allDay, true);
 });
 
+test("preserves the vault's bold reminder titles and wikilinks", () => {
+  const reminders = parseReminders([
+    "- [ ] **P01958 (Switchshop)** (@2026-07-12 09:00)",
+    "- [ ] **EOD** | [[Templates/EOD]] (@[[2026-07-17]] 17:00)"
+  ].join("\n"), "FTL/Pending CTCU.md");
+  assert.equal(reminders[0]?.text, "**P01958 (Switchshop)**");
+  assert.equal(reminders[1]?.text, "**EOD** | [[Templates/EOD]]");
+  assert.equal(reminders[1]?.allDay, false);
+});
+
 test("rejects impossible local dates", () => {
   assert.equal(parseLocalDate("2026-02-30"), null);
   assert.equal(parseLocalDate("2026-07-10 25:00"), null);
@@ -56,8 +66,8 @@ test("renders weekday schedules and template variables", () => {
 
 test("renders formatted Daily Notes variables", () => {
   const date = new Date(2026, 6, 10, 8, 5);
-  const output = renderTemplate("{{date:YYYY/MM/DD}} {{time:HH:mm}}", date, "title");
-  assert.equal(output, "2026/07/10 08:05");
+  const output = renderTemplate("{{date:YYYY/MM/DD}} {{time:HH:mm}} {{daily-five}}", date, "title");
+  assert.equal(output, "2026/07/10 08:05 {{daily-five}}");
 });
 
 test("adds and updates linked reminders", () => {

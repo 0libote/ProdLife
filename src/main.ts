@@ -26,7 +26,7 @@ export default class ProdLifePlugin extends Plugin {
     this.writing = new WritingTracker(this.app, () => this.settings, () => this.data, () => this.persistData(), (file) => {
       const frontmatterDate: unknown = this.app.metadataCache.getFileCache(file)?.frontmatter?.date;
       return typeof frontmatterDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(frontmatterDate) ? frontmatterDate : this.daily.dateFor(file);
-    });
+    }, () => void this.refreshViews());
     this.reminders.delayUntil(Date.now() + this.settings.startupDelaySeconds * 1000);
 
     this.registerView(DASHBOARD_VIEW, (leaf) => new DashboardView(leaf, this.daily, this.reminders, this.writing, () => this.settings, () => this.data, () => this.saveSettings(), (achievements) => this.recordAchievements(achievements)));
