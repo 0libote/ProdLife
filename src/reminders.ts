@@ -1,4 +1,4 @@
-import { App, Editor, MarkdownView, Modal, Notice, TFile, TFolder, normalizePath } from "obsidian";
+import { App, Component, Editor, MarkdownRenderer, MarkdownView, Modal, Notice, TFile, TFolder, normalizePath, setIcon } from "obsidian";
 import { parseReminders, upsertReminder } from "./core";
 import type { ProdLifeData, ProdLifeSettings, ReminderItem } from "./types";
 
@@ -6,12 +6,14 @@ export class ReminderService {
   private showing = false;
   private dirty = true;
   private cached: ReminderItem[] = [];
+  private readyAt = 0;
 
   constructor(
     private app: App,
     private settings: () => ProdLifeSettings,
     private data: () => ProdLifeData,
-    private persist: () => Promise<void>
+    private persist: () => Promise<void>,
+    private component: Component
   ) {}
 
   async scan(): Promise<ReminderItem[]> {
@@ -27,9 +29,10 @@ export class ReminderService {
   }
 
   invalidate(): void { this.dirty = true; }
+  delayUntil(timestamp: number): void { this.readyAt = timestamp; }
 
   async checkDue(): Promise<void> {
-    if (!this.settings().remindersEnabled || this.showing) return;
+    if (!this.settings().remindersEnabled || this.showing || Date.now() < this.readyAt) return;
     const now = Date.now();
     const state = this.data();
     const due = (await this.scan()).find((item) =>
@@ -42,7 +45,7 @@ export class ReminderService {
     this.showing = true;
     state.notified[due.id] = now;
     await this.persist();
-    new ReminderModal(this.app, due, this.settings().snoozeMinutes, {
+    new ReminderModal(this.app, due, this.settings().snoozeMinutes, this.component, {
       complete: async () => this.complete(due),
       snooze: async (minutes) => this.snooze(due, minutes),
       open: async () => this.open(due),
@@ -112,14 +115,15 @@ interface ReminderActions {
 }
 
 class ReminderModal extends Modal {
-  constructor(app: App, private item: ReminderItem, private snoozeMinutes: number[], private actions: ReminderActions) { super(app); }
+  constructor(app: App, private item: ReminderItem, private snoozeMinutes: number[], private component: Component, private actions: ReminderActions) { super(app); }
 
   onOpen(): void {
     this.modalEl.addClass("prodlife-reminder-modal");
     this.contentEl.createDiv({ cls: "prodlife-pet prodlife-pet--alert", text: "◆" });
     this.contentEl.createEl("h2", { text: "A gentle nudge" });
-    this.contentEl.createEl("p", { cls: "prodlife-reminder-title", text: this.item.text });
-    this.contentEl.createEl("small", { text: `Due ${new Date(this.item.due).toLocaleString()}` });
+    const title = this.contentEl.createEl("p", { cls: "prodlife-reminder-title" });
+    void MarkdownRenderer.render(this.app, this.item.text, title, this.item.path, this.component);
+    this.contentEl.createEl("small", { text: this.item.allDay ? `All day · ${new Date(this.item.due).toLocaleDateString()}` : `Due ${new Date(this.item.due).toLocaleString()}` });
     const actions = this.contentEl.createDiv({ cls: "prodlife-modal-actions" });
     const done = actions.createEl("button", { cls: "mod-cta", text: "Mark done" });
     done.addEventListener("click", () => { void this.actions.complete().then(() => this.close()); });
@@ -140,6 +144,14 @@ class ReminderModal extends Modal {
 }
 
 class ReminderEditorModal extends Modal {
+  private selected = new Date();
+  private visibleMonth = new Date();
+  private allDay = false;
+  private time = "09:00";
+  private cursorLine = 0;
+  private originalLine = "";
+  private editing = false;
+
   constructor(
     app: App,
     private editor: Editor,
@@ -150,31 +162,67 @@ class ReminderEditorModal extends Modal {
 
   onOpen(): void {
     const cursor = this.editor.getCursor();
-    const line = this.editor.getLine(cursor.line);
-    const existing = parseReminders(line, "current", this.defaultTime)[0];
+    this.cursorLine = cursor.line;
+    this.originalLine = this.editor.getLine(cursor.line);
+    const existing = parseReminders(this.originalLine, "current", this.defaultTime)[0];
+    this.editing = existing !== undefined;
     const due = existing ? new Date(existing.due) : new Date();
-    const date = this.contentEl.createEl("input", { type: "date", value: localDate(due) });
-    const time = this.contentEl.createEl("input", { type: "time", value: existing ? localTime(due) : this.defaultTime });
-    this.contentEl.createEl("h2", { text: existing ? "Edit reminder" : "Add reminder" });
+    this.selected = due;
+    this.visibleMonth = new Date(due.getFullYear(), due.getMonth(), 1);
+    this.allDay = existing?.allDay ?? false;
+    this.time = existing && !existing.allDay ? localTime(due) : this.defaultTime;
+    this.render();
+  }
+
+  private render(): void {
+    this.contentEl.empty();
+    this.modalEl.addClass("prodlife-date-picker-modal");
+    this.contentEl.createEl("h2", { text: this.editing ? "Edit reminder" : "Add reminder" });
+    const monthHeader = this.contentEl.createDiv({ cls: "prodlife-calendar-header" });
+    const previous = monthHeader.createEl("button", { cls: "clickable-icon", attr: { "aria-label": "Previous month" } });
+    setIcon(previous, "chevron-left");
+    previous.addEventListener("click", () => { this.visibleMonth.setMonth(this.visibleMonth.getMonth() - 1); this.render(); });
+    monthHeader.createEl("strong", { text: new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(this.visibleMonth) });
+    const next = monthHeader.createEl("button", { cls: "clickable-icon", attr: { "aria-label": "Next month" } });
+    setIcon(next, "chevron-right");
+    next.addEventListener("click", () => { this.visibleMonth.setMonth(this.visibleMonth.getMonth() + 1); this.render(); });
+    const calendar = this.contentEl.createDiv({ cls: "prodlife-calendar" });
+    for (const day of ["S", "M", "T", "W", "T", "F", "S"]) calendar.createSpan({ cls: "prodlife-calendar-weekday", text: day });
+    const start = new Date(this.visibleMonth.getFullYear(), this.visibleMonth.getMonth(), 1 - this.visibleMonth.getDay());
+    for (let index = 0; index < 42; index++) {
+      const date = new Date(start);
+      date.setDate(start.getDate() + index);
+      const button = calendar.createEl("button", {
+        cls: `prodlife-calendar-day${date.getMonth() === this.visibleMonth.getMonth() ? "" : " is-outside"}${sameDay(date, this.selected) ? " is-selected" : ""}${sameDay(date, new Date()) ? " is-today" : ""}`,
+        text: String(date.getDate()),
+        attr: { "aria-label": date.toLocaleDateString() }
+      });
+      button.addEventListener("click", () => { this.selected = date; this.render(); });
+    }
     const fields = this.contentEl.createDiv({ cls: "prodlife-reminder-fields" });
-    fields.append(date, time);
+    const allDayLabel = fields.createEl("label", { cls: "prodlife-all-day" });
+    const allDay = allDayLabel.createEl("input", { type: "checkbox" });
+    allDay.checked = this.allDay;
+    allDay.addEventListener("change", () => { this.allDay = allDay.checked; this.render(); });
+    allDayLabel.createSpan({ text: "All day" });
+    const time = fields.createEl("input", { type: "time", value: this.time });
+    time.disabled = this.allDay;
+    time.addEventListener("change", () => { this.time = time.value; });
     const actions = this.contentEl.createDiv({ cls: "prodlife-modal-actions" });
+    const today = actions.createEl("button", { text: "Today" });
+    today.addEventListener("click", () => { this.selected = new Date(); this.visibleMonth = new Date(this.selected.getFullYear(), this.selected.getMonth(), 1); this.render(); });
     const save = actions.createEl("button", { cls: "mod-cta", text: "Save reminder" });
     save.addEventListener("click", () => {
-      if (!date.value) {
-        new Notice("Choose a reminder date.");
-        return;
-      }
-      this.editor.setLine(cursor.line, upsertReminder(line, date.value, time.value, this.linkDate));
+      this.editor.setLine(this.cursorLine, upsertReminder(this.originalLine, localDate(this.selected), this.allDay ? "" : this.time, this.linkDate));
       this.changed();
       this.close();
     });
-    window.setTimeout(() => date.focus(), 0);
   }
 }
 
 const localDate = (date: Date): string => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 const localTime = (date: Date): string => `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+const sameDay = (first: Date, second: Date): boolean => first.getFullYear() === second.getFullYear() && first.getMonth() === second.getMonth() && first.getDate() === second.getDate();
 const snoozeLabel = (minutes: number): string => minutes % 10080 === 0
   ? `${minutes / 10080}w`
   : minutes % 1440 === 0

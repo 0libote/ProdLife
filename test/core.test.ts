@@ -2,13 +2,17 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   activityFromContent,
+  achievementsFor,
   calculateStreak,
+  countWords,
   ensureDailyFrontmatter,
   extractRollover,
   parseLocalDate,
   parseReminders,
+  persistentWordTotal,
   renderTemplate,
   scheduleMatches,
+  shouldArchiveDaily,
   upsertReminder
 } from "../src/core";
 
@@ -24,6 +28,8 @@ test("parses supported reminder formats and ignores completed tasks", () => {
   assert.equal(reminders[0]?.text, "Call Sam");
   assert.equal(reminders[2]?.rawDue, "2026-07-12 08:15");
   assert.equal(reminders[3]?.completed, true);
+  assert.equal(reminders[0]?.allDay, false);
+  assert.equal(reminders[1]?.allDay, true);
 });
 
 test("rejects impossible local dates", () => {
@@ -73,4 +79,25 @@ test("calculates activity and a consecutive streak", () => {
 
 test("does not roll an untouched task placeholder", () => {
   assert.equal(extractRollover("# Focus\n- [ ] \n# Work\n- [ ] Real task"), "# Work\n- [ ] Real task");
+});
+
+test("counts words and never subtracts persistent writing history", () => {
+  assert.equal(countWords("Hello, productive world. Καλημέρα 世界"), 6);
+  assert.equal(persistentWordTotal(120, 20, 35), 135);
+  assert.equal(persistentWordTotal(135, 35, 0), 135);
+});
+
+test("builds a broad achievement catalog with progress and unlock dates", () => {
+  const activity = [{ date: "2026-07-11", completed: 10, total: 10 }];
+  const achievements = achievementsFor(activity, 3, { "2026-07-11": 600 }, { "tasks-1": 1234 });
+  assert.ok(achievements.length >= 40);
+  assert.equal(achievements.find((item) => item.id === "tasks-1")?.unlockedAt, 1234);
+  assert.equal(achievements.find((item) => item.id === "words-500")?.unlocked, true);
+});
+
+test("archives only daily notes old enough for the configured policy", () => {
+  const today = new Date(2026, 6, 11);
+  assert.equal(shouldArchiveDaily("2026-07-10", today, 1), true);
+  assert.equal(shouldArchiveDaily("2026-07-10", today, 2), false);
+  assert.equal(shouldArchiveDaily("not-a-date", today, 1), false);
 });

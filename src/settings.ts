@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, Modal, Notice, PluginSettingTab, Setting, TextComponent } from "obsidian";
 import type ProdLifePlugin from "./main";
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -29,10 +29,31 @@ export class ProdLifeSettingTab extends PluginSettingTab {
       .setName("Date format")
       .setDesc("Moment.js format used for note names, for example YYYY-MM-DD or YYYY/MM/YYYY-MM-DD.")
       .addText((text) => text.setPlaceholder("YYYY-MM-DD").setValue(this.plugin.settings.dateFormat).onChange((value) => this.save("dateFormat", value.trim() || "YYYY-MM-DD")));
+    let weekdayTemplate: TextComponent | null = null;
+    let selectedDay = String(new Date().getDay());
     new Setting(containerEl)
-      .setName("Default template")
-      .setDesc("Vault path to a template note, without or with .md. Leave blank for the built-in template.")
-      .addText((text) => text.setPlaceholder("Templates/Daily").setValue(this.plugin.settings.defaultTemplate).onChange((value) => this.save("defaultTemplate", value.trim())));
+      .setName("Daily note templates")
+      .setDesc("Default template, weekday picker, and that weekday’s override. Leave an override blank to use the default.")
+      .addText((text) => {
+        text.inputEl.setAttr("aria-label", "Default daily note template");
+        text.setPlaceholder("Default template").setValue(this.plugin.settings.defaultTemplate).onChange((value) => this.save("defaultTemplate", value.trim()));
+      })
+      .addDropdown((dropdown) => {
+        DAYS.forEach((day, index) => { dropdown.addOption(String(index), day); });
+        dropdown.setValue(selectedDay).onChange((value) => {
+          selectedDay = value;
+          weekdayTemplate?.setValue(this.plugin.settings.weekdayTemplates[value] ?? "");
+        });
+      })
+      .addText((text) => {
+        weekdayTemplate = text;
+        text.inputEl.setAttr("aria-label", "Selected weekday template");
+        text.setPlaceholder("Weekday override").setValue(this.plugin.settings.weekdayTemplates[selectedDay] ?? "").onChange(async (value) => {
+          this.plugin.settings.weekdayTemplates[selectedDay] = value.trim();
+          await this.plugin.saveSettings();
+        });
+      })
+      .addButton((button) => button.setButtonText("Add task").setTooltip("Add a dated task without writing template formulas").onClick(() => new TemplateTaskModal(this.app, this.plugin).open()));
     new Setting(containerEl)
       .setName("Roll unfinished tasks forward")
       .setDesc("Preserve open tasks, nested children, and their headings from the previous daily note.")
@@ -41,24 +62,31 @@ export class ProdLifeSettingTab extends PluginSettingTab {
       .setName("Remove empty headings")
       .setDesc("Do not carry headings that contain no unfinished tasks into the next note.")
       .addToggle((toggle) => toggle.setValue(this.plugin.settings.removeEmptyHeadings).onChange((value) => this.save("removeEmptyHeadings", value)));
+    let archiveDays: TextComponent | null = null;
     new Setting(containerEl)
       .setName("Archive folder")
-      .setDesc("Optional destination used by the Archive old daily notes command.")
-      .addText((text) => text.setPlaceholder("Archive/Daily").setValue(this.plugin.settings.archiveFolder).onChange((value) => this.save("archiveFolder", value.trim())));
-
-    new Setting(containerEl).setName("Templates by weekday").setHeading();
-    containerEl.createEl("p", { cls: "setting-item-description", text: "A weekday template overrides the default template on that day." });
-    DAYS.forEach((day, index) => {
-      new Setting(containerEl)
-        .setName(day)
-        .addText((text) => text
-          .setPlaceholder("Use default")
-          .setValue(this.plugin.settings.weekdayTemplates[String(index)] ?? "")
-          .onChange(async (value) => {
-            this.plugin.settings.weekdayTemplates[String(index)] = value.trim();
-            await this.plugin.saveSettings();
-          }));
-    });
+      .setDesc("Archive destination, automatic schedule, and retention age.")
+      .addText((text) => text.setPlaceholder("Archive/Daily").setValue(this.plugin.settings.archiveFolder).onChange((value) => this.save("archiveFolder", value.trim())))
+      .addDropdown((dropdown) => dropdown
+        .addOption("off", "Manual")
+        .addOption("next-day", "Next day")
+        .addOption("after-days", "After days")
+        .setValue(this.plugin.settings.autoArchiveMode)
+        .onChange((value) => {
+          if (value !== "off" && value !== "next-day" && value !== "after-days") return;
+          archiveDays?.setDisabled(value !== "after-days");
+          void this.save("autoArchiveMode", value);
+        }))
+      .addText((text) => {
+        archiveDays = text;
+        text.inputEl.type = "number";
+        text.inputEl.min = "1";
+        text.inputEl.setAttr("aria-label", "Days before automatic archive");
+        text.setPlaceholder("Days").setValue(String(this.plugin.settings.autoArchiveDays)).setDisabled(this.plugin.settings.autoArchiveMode !== "after-days").onChange((value) => {
+          const days = Number(value);
+          if (Number.isInteger(days) && days > 0) void this.save("autoArchiveDays", days);
+        });
+      });
 
     new Setting(containerEl).setName("Reminders").setHeading();
     new Setting(containerEl)
@@ -94,6 +122,36 @@ export class ProdLifeSettingTab extends PluginSettingTab {
       .setName("Scan interval")
       .setDesc("Seconds between reminder checks. Takes effect after reloading the plugin.")
       .addSlider((slider) => slider.setLimits(15, 300, 15).setValue(this.plugin.settings.reminderIntervalSeconds).onChange((value) => this.save("reminderIntervalSeconds", value)));
+    new Setting(containerEl)
+      .setName("Startup delay")
+      .setDesc("Wait for Obsidian Sync or another sync plugin before showing overdue reminders and auto-archiving.")
+      .addSlider((slider) => slider.setLimits(5, 120, 5).setValue(this.plugin.settings.startupDelaySeconds).onChange((value) => this.save("startupDelaySeconds", value)));
+
+    new Setting(containerEl).setName("Dashboard and writing").setHeading();
+    new Setting(containerEl)
+      .setName("Writing folders")
+      .setDesc("Comma-separated files or folders for persistent word tracking. Leave blank for the whole vault.")
+      .addText((text) => text.setPlaceholder("Daily, Notes").setValue(this.plugin.settings.writingFolders.join(", ")).onChange((value) => this.save("writingFolders", value.split(",").map((path) => path.trim()).filter(Boolean))));
+    new Setting(containerEl)
+      .setName("Daily word goal")
+      .setDesc("Controls heatmap intensity and writing achievements.")
+      .addText((text) => {
+        text.inputEl.type = "number";
+        text.inputEl.min = "1";
+        text.setValue(String(this.plugin.settings.writingGoal)).onChange((value) => {
+          const goal = Number(value);
+          if (Number.isInteger(goal) && goal > 0) void this.save("writingGoal", goal);
+        });
+      });
+    new Setting(containerEl)
+      .setName("Default heatmap view")
+      .addDropdown((dropdown) => dropdown.addOption("year", "Year").addOption("month", "Month").setValue(this.plugin.settings.heatmapMode).onChange((value) => {
+        if (value === "year" || value === "month") return this.save("heatmapMode", value);
+      }));
+    new Setting(containerEl)
+      .setName("Dashboard layout")
+      .setDesc("Choose, hide, and reorder dashboard sections from the dashboard itself.")
+      .addButton((button) => button.setButtonText("Customize").onClick(() => void this.plugin.openDashboardCustomizer()));
 
     new Setting(containerEl).setName("Productivity pet").setHeading();
     new Setting(containerEl)
@@ -122,5 +180,36 @@ export class ProdLifeSettingTab extends PluginSettingTab {
   private async save<Key extends keyof ProdLifePlugin["settings"]>(key: Key, value: ProdLifePlugin["settings"][Key]): Promise<void> {
     this.plugin.settings[key] = value;
     await this.plugin.saveSettings();
+  }
+}
+
+class TemplateTaskModal extends Modal {
+  private target = "default";
+  private title = "";
+  private time = "09:00";
+  private allDay = false;
+
+  constructor(app: App, private plugin: ProdLifePlugin) { super(app); }
+
+  onOpen(): void {
+    this.contentEl.createEl("h2", { text: "Add task to daily template" });
+    new Setting(this.contentEl).setName("Template").addDropdown((dropdown) => {
+      dropdown.addOption("default", "Default");
+      DAYS.forEach((day, index) => { dropdown.addOption(String(index), day); });
+      dropdown.onChange((value) => { this.target = value; });
+    });
+    new Setting(this.contentEl).setName("Task").addText((text) => text.setPlaceholder("Send invoices").onChange((value) => { this.title = value; }));
+    new Setting(this.contentEl).setName("Time").addText((text) => {
+      text.inputEl.type = "time";
+      text.setValue(this.time).onChange((value) => { this.time = value; });
+    });
+    new Setting(this.contentEl).setName("All day").addToggle((toggle) => toggle.onChange((value) => { this.allDay = value; }));
+    new Setting(this.contentEl).addButton((button) => button.setCta().setButtonText("Add task").onClick(() => {
+      if (!this.title.trim()) {
+        new Notice("Enter a task name.");
+        return;
+      }
+      void this.plugin.addTemplateTask(this.target, this.title, this.time, this.allDay).then((added) => { if (added) this.close(); });
+    }));
   }
 }

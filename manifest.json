@@ -2,7 +2,7 @@
   "id": "prodlife",
   "name": "ProdLife",
   "version": "1.0.1",
-  "minAppVersion": "1.7.2",
+  "minAppVersion": "1.10.0",
   "description": "Build daily notes, roll over tasks, manage reminders, and turn consistent productivity into visible progress.",
   "author": "0libote",
   "authorUrl": "https://github.com/0libote",

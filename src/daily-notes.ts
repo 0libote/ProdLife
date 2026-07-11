@@ -1,5 +1,5 @@
 import { App, Notice, TFile, TFolder, moment as obsidianMoment, normalizePath } from "obsidian";
-import { ensureDailyFrontmatter, extractRollover, renderTemplate } from "./core";
+import { ensureDailyFrontmatter, extractRollover, renderTemplate, shouldArchiveDaily } from "./core";
 import type { ProdLifeSettings } from "./types";
 
 interface MomentValue {
@@ -48,6 +48,7 @@ export class DailyNotesService {
       const content = this.compose(base, rollover, toMoment(date).format("YYYY-MM-DD"), previousPath);
       const file = await this.app.vault.create(path, content);
       await this.linkPreviousToNext(previous, file);
+      await this.autoArchive();
       await this.app.workspace.getLeaf(false).openFile(file);
       new Notice(`ProdLife created ${title}.`);
       return file;
@@ -87,14 +88,18 @@ export class DailyNotesService {
       .sort((a, b) => b.date.valueOf() - a.date.valueOf())[0]?.file ?? null;
   }
 
-  async archiveOldNotes(): Promise<number> {
+  async archiveOldNotes(ageDays = 1, notify = true, preservePath = ""): Promise<number> {
     const archiveFolder = normalizePath(this.settings().archiveFolder);
     if (!archiveFolder) {
       new Notice("Set an archive folder in ProdLife settings first.");
       return 0;
     }
-    const todayPath = toMoment().format(this.settings().dateFormat);
-    const files = this.dailyFiles().filter((file) => this.relativeDailyPath(file) !== todayPath);
+    const today = new Date();
+    const files = this.dailyFiles().filter((file) => {
+      if (file.path === preservePath) return false;
+      const date = this.dateFor(file);
+      return date !== null && shouldArchiveDaily(date, today, ageDays);
+    });
     let moved = 0;
     for (const file of files) {
       const relative = `${this.relativeDailyPath(file) ?? file.basename}.md`;
@@ -104,8 +109,39 @@ export class DailyNotesService {
       await this.app.fileManager.renameFile(file, destination);
       moved++;
     }
-    new Notice(moved ? `ProdLife archived ${moved} daily note${moved === 1 ? "" : "s"}.` : "No daily notes needed archiving.");
+    if (notify) new Notice(moved ? `ProdLife archived ${moved} daily note${moved === 1 ? "" : "s"}.` : "No daily notes needed archiving.");
     return moved;
+  }
+
+  async autoArchive(): Promise<number> {
+    const settings = this.settings();
+    if (settings.autoArchiveMode === "off" || !settings.archiveFolder.trim()) return 0;
+    const title = toMoment().format(settings.dateFormat);
+    const today = this.app.vault.getAbstractFileByPath(normalizePath(`${settings.dailyFolder}/${title}.md`));
+    const preserve = today instanceof TFile ? "" : this.findPrevious(new Date())?.path ?? "";
+    return this.archiveOldNotes(settings.autoArchiveMode === "next-day" ? 1 : settings.autoArchiveDays, false, preserve);
+  }
+
+  async addTaskToTemplate(path: string, title: string, time: string, allDay: boolean): Promise<boolean> {
+    const normalized = normalizePath(path.endsWith(".md") ? path : `${path}.md`);
+    const file = this.app.vault.getAbstractFileByPath(normalized);
+    if (!(file instanceof TFile)) {
+      new Notice(`ProdLife template not found: ${normalized}.`);
+      return false;
+    }
+    const reminder = `(@{{date:YYYY-MM-DD}}${allDay || !time ? "" : ` ${time}`})`;
+    await this.app.vault.process(file, (content) => {
+      const lines = content.split("\n");
+      const heading = lines.findIndex((line) => /^##\s+Today\s*$/i.test(line));
+      const task = `- [ ] ${title.trim()} ${reminder}`;
+      if (heading === -1) return `${content.trimEnd()}\n\n## Today\n${task}\n`;
+      let insertAt = heading + 1;
+      while (insertAt < lines.length && !/^#{1,6}\s+/.test(lines[insertAt] ?? "")) insertAt++;
+      lines.splice(insertAt, 0, task);
+      return lines.join("\n");
+    });
+    new Notice(`Added “${title.trim()}” to ${file.basename}.`);
+    return true;
   }
 
   private async readTemplate(date: Date): Promise<string> {

@@ -42,7 +42,8 @@ export function parseReminders(content: string, path: string, defaultTime = "09:
       text,
       due,
       rawDue: raw,
-      completed: /[xX]/.test(task[2] ?? "")
+      completed: /[xX]/.test(task[2] ?? ""),
+      allDay: !/\d{1,2}:\d{2}/.test(raw.replace(/\[\[|\]\]/g, ""))
     });
   });
   return reminders;
@@ -233,15 +234,89 @@ export function calculateStreak(activity: DayActivity[], today: Date): number {
   return streak;
 }
 
-export function achievementsFor(activity: DayActivity[], streak: number): Achievement[] {
+export function achievementsFor(
+  activity: DayActivity[],
+  taskStreak: number,
+  writing: Record<string, number> = {},
+  unlocks: Record<string, number> = {}
+): Achievement[] {
   const completed = activity.reduce((sum, day) => sum + day.completed, 0);
   const perfectDays = activity.filter((day) => day.total > 0 && day.completed === day.total).length;
-  return [
-    { id: "first-step", name: "First step", description: "Complete your first task", unlocked: completed >= 1 },
-    { id: "momentum", name: "Momentum", description: "Complete 25 tasks", unlocked: completed >= 25 },
-    { id: "century", name: "Century", description: "Complete 100 tasks", unlocked: completed >= 100 },
-    { id: "three-day", name: "On a roll", description: "Build a 3-day streak", unlocked: streak >= 3 },
-    { id: "week", name: "Full week", description: "Build a 7-day streak", unlocked: streak >= 7 },
-    { id: "clear-day", name: "Clean slate", description: "Finish every task in a daily note", unlocked: perfectDays >= 1 }
-  ];
+  const wordValues = Object.values(writing);
+  const totalWords = wordValues.reduce((sum, words) => sum + words, 0);
+  const bestDay = Math.max(0, ...wordValues);
+  const writingDays = wordValues.filter((words) => words > 0).length;
+  const writingStreak = streakForValues(writing, new Date());
+  const definitions: Array<Omit<Achievement, "progress" | "unlocked" | "unlockedAt"> & { value: number }> = [];
+  const addMilestones = (
+    category: Achievement["category"],
+    icon: string,
+    prefix: string,
+    noun: string,
+    value: number,
+    targets: number[]
+  ): void => {
+    for (const target of targets) definitions.push({
+      id: `${prefix}-${target}`,
+      name: milestoneName(prefix, target),
+      description: `${noun} ${target.toLocaleString()}${prefix === "words" || prefix === "best" ? " words" : ""}`,
+      category,
+      icon,
+      target,
+      value
+    });
+  };
+  addMilestones("tasks", "circle-check-big", "tasks", "Complete", completed, [1, 10, 25, 50, 100, 250, 500, 1000]);
+  addMilestones("writing", "pen-line", "words", "Write", totalWords, [100, 500, 1000, 5000, 10000, 25000, 50000, 100000]);
+  addMilestones("writing", "sparkles", "best", "Write in one day", bestDay, [100, 250, 500, 1000, 2500, 5000]);
+  addMilestones("streaks", "flame", "task-streak", "Build a task streak of", taskStreak, [3, 7, 14, 30, 60, 100, 365]);
+  addMilestones("streaks", "feather", "writing-streak", "Build a writing streak of", writingStreak, [3, 7, 14, 30, 60, 100, 365]);
+  addMilestones("consistency", "calendar-check", "perfect", "Complete every task on", perfectDays, [1, 5, 10, 25, 50, 100]);
+  addMilestones("consistency", "calendar-days", "writing-days", "Write on", writingDays, [1, 7, 30, 100, 250, 365]);
+  return definitions.map(({ value, ...achievement }) => ({
+    ...achievement,
+    progress: Math.min(value, achievement.target),
+    unlocked: value >= achievement.target,
+    ...(unlocks[achievement.id] ? { unlockedAt: unlocks[achievement.id] } : {})
+  }));
+}
+
+export function countWords(text: string): number {
+  const matches = text.match(/[a-zA-Z0-9_\u0370-\u03ff\u00c0-\u024f\u0400-\u052f\u0590-\u06ff]+|[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff\u3040-\u30ff\uac00-\ud7af]/gu);
+  return matches?.length ?? 0;
+}
+
+export function persistentWordTotal(total: number, previousSnapshot: number, currentSnapshot: number): number {
+  return total + Math.max(0, currentSnapshot - previousSnapshot);
+}
+
+export function streakForValues(values: Record<string, number>, today: Date): number {
+  const cursor = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  let streak = 0;
+  while ((values[isoDate(cursor)] ?? 0) > 0) {
+    streak++;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
+}
+
+export const isoDate = (date: Date): string => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+
+export function shouldArchiveDaily(date: string, today: Date, ageDays: number): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
+  const cutoff = new Date(today.getFullYear(), today.getMonth(), today.getDate() - Math.max(1, ageDays));
+  return new Date(`${date}T00:00:00`).getTime() <= cutoff.getTime();
+}
+
+function milestoneName(prefix: string, target: number): string {
+  const names: Record<string, string> = {
+    tasks: "Task maker",
+    words: "Wordsmith",
+    best: "Flow state",
+    "task-streak": "On a roll",
+    "writing-streak": "Writing rhythm",
+    perfect: "Clean slate",
+    "writing-days": "Showing up"
+  };
+  return `${names[prefix] ?? "Milestone"} · ${target.toLocaleString()}`;
 }
