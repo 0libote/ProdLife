@@ -13,12 +13,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - run: npm run check
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile
+      - run: bun run check
       - name: Verify release files
         run: test -s main.js && test -s manifest.json && test -s styles.css
-
