@@ -141,12 +141,14 @@ Before adopting any new workflow plugin, back up or version-control your vault. 
 
 ## Development and release
 
+Requires Bun 1.3.14 or newer.
+
 ```bash
-npm ci
-npm run check
+bun ci
+bun run check
 ```
 
-`npm run check` runs unit tests, Obsidian-specific lint rules, TypeScript checks, and the production build. To release, run `npm version patch|minor|major` and push the generated version commit and exact numeric tag. GitHub Actions builds and prepares a draft release containing the three Marketplace assets.
+`bun run check` runs the Bun test suite, Obsidian-specific lint rules, TypeScript checks, and the production build. To release, run `bun pm version patch|minor|major` and push the generated version commit and exact numeric tag. GitHub Actions builds and prepares a draft release containing the three Marketplace assets.
 
 ## Credits
 
