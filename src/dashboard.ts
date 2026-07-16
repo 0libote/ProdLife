@@ -3,7 +3,7 @@ import { achievementsFor, activityFromContent, calculateStreak, isoDate, streakF
 import type { DailyNotesService } from "./daily-notes";
 import { renderReminderMarkdown } from "./reminder-view";
 import type { ReminderService } from "./reminders";
-import type { Achievement, DashboardSectionId, DayActivity, ProdLifeData, ProdLifeSettings } from "./types";
+import type { Achievement, DashboardSectionId, DayActivity, ProdLifeData, ProdLifeSettings, WritingMetric, WritingMetrics } from "./types";
 import type { WritingTracker } from "./writing";
 
 export const DASHBOARD_VIEW = "prodlife-dashboard";
@@ -18,6 +18,9 @@ const ALL_SECTIONS: Array<{ id: DashboardSectionId; label: string }> = [
 export class DashboardView extends ItemView {
   private heatmapMode: "year" | "month";
   private heatmapCursor = new Date();
+  private selectedHeatmapDate = isoDate(new Date());
+  private renderGeneration = 0;
+  private activityCache = new Map<string, { mtime: number; activity: DayActivity }>();
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -27,7 +30,8 @@ export class DashboardView extends ItemView {
     private settings: () => ProdLifeSettings,
     private data: () => ProdLifeData,
     private saveSettings: () => Promise<void>,
-    private recordAchievements: (achievements: Achievement[]) => Promise<void>
+    private recordAchievements: (achievements: Achievement[]) => Promise<void>,
+    private askPet: () => void
   ) {
     super(leaf);
     this.heatmapMode = settings().heatmapMode;
@@ -36,19 +40,29 @@ export class DashboardView extends ItemView {
   getViewType(): string { return DASHBOARD_VIEW; }
   getDisplayText(): string { return "ProdLife"; }
   getIcon(): string { return "sprout"; }
-  async onOpen(): Promise<void> { await this.render(); }
+  async onOpen(): Promise<void> {
+    const updateSize = (): void => {
+      this.contentEl.toggleClass("is-narrow", this.contentEl.clientWidth <= 820);
+      this.contentEl.toggleClass("is-compact", this.contentEl.clientWidth <= 460);
+    };
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(this.contentEl);
+    this.register(() => observer.disconnect());
+    updateSize();
+    await this.render();
+  }
 
   async render(): Promise<void> {
-    const root = this.contentEl;
-    root.empty();
-    root.addClass("prodlife-dashboard");
+    const generation = ++this.renderGeneration;
+    this.contentEl.addClass("prodlife-dashboard");
+    const root = createDiv();
     const masthead = root.createEl("header", { cls: "prodlife-masthead" });
     masthead.createEl("h1", { cls: "prodlife-wordmark", text: "ProdLife" });
     const customize = masthead.createEl("button", { cls: "clickable-icon", attr: { "aria-label": "Customize dashboard" } });
     setIcon(customize, "panels-top-left");
     customize.addEventListener("click", () => openDashboardLayout(this.app, this.settings(), async () => { await this.saveSettings(); await this.render(); }));
 
-    const activity = await this.loadActivity(this.app);
+    const activity = await this.loadActivity();
     const writing = this.writing.values();
     const today = new Date();
     const taskStreak = calculateStreak(activity, today);
@@ -59,10 +73,13 @@ export class DashboardView extends ItemView {
     for (const section of this.settings().dashboardSections) {
       if (section === "hero") this.renderHero(root, taskStreak, activity, today);
       else if (section === "metrics") this.renderMetrics(root, activity, writing, taskStreak, today);
-      else if (section === "heatmap") this.renderHeatmapSection(root, writing);
+      else if (section === "heatmap") this.renderHeatmapSection(root);
       else if (section === "achievements") this.renderAchievementSummary(root, achievements);
       else if (section === "reminders") await this.renderReminders(root);
     }
+    if (generation !== this.renderGeneration) return;
+    this.contentEl.empty();
+    this.contentEl.append(...Array.from(root.childNodes));
   }
 
   private renderHero(root: HTMLElement, taskStreak: number, activity: DayActivity[], today: Date): void {
@@ -74,7 +91,8 @@ export class DashboardView extends ItemView {
     greeting.createEl("p", { text: todayActivity?.completed ? `${todayActivity.completed} task${todayActivity.completed === 1 ? "" : "s"} completed today.` : "One completed task is enough to begin a streak." });
     const openToday = greeting.createEl("button", { cls: "mod-cta", text: "Open today's note" });
     openToday.addEventListener("click", () => void this.daily.open());
-    const pet = hero.createDiv({ cls: "prodlife-pet-card" });
+    const pet = hero.createEl("button", { cls: "prodlife-pet-card", attr: { "aria-label": `Ask ${this.settings().petName} for a check-in` } });
+    pet.addEventListener("click", this.askPet);
     pet.createDiv({ cls: "prodlife-pip-sprite", attr: { role: "img", "aria-label": `${this.settings().petName}, your productivity pet` } });
     pet.createEl("strong", { text: this.settings().petName });
     pet.createSpan({ text: petMessage(taskStreak, todayActivity?.completed ?? 0) });
@@ -88,13 +106,25 @@ export class DashboardView extends ItemView {
     metric(metrics, "feather", streakForValues(writing, today).toLocaleString(), "writing streak");
   }
 
-  private renderHeatmapSection(root: HTMLElement, writing: Record<string, number>): void {
+  private renderHeatmapSection(root: HTMLElement): void {
+    const metricName = this.settings().heatmapMetric;
+    const writing = this.writing.values(metricName);
+    const label = metricLabel(metricName);
     const section = root.createEl("section", { cls: "prodlife-panel prodlife-progress" });
     const header = section.createDiv({ cls: "prodlife-section-header" });
     const copy = header.createDiv();
     copy.createEl("h3", { text: "Writing rhythm" });
-    copy.createEl("p", { text: `${Object.values(writing).reduce((sum, words) => sum + words, 0).toLocaleString()} words permanently logged` });
+    copy.createEl("p", { text: `${Object.values(writing).reduce((sum, value) => sum + value, 0).toLocaleString()} ${label} added · retained after note deletion` });
     const controls = header.createDiv({ cls: "prodlife-heatmap-controls" });
+    const metricSelect = controls.createEl("select", { attr: { "aria-label": "Heatmap metric" } });
+    metricSelect.createEl("option", { text: "Words", value: "words" });
+    metricSelect.createEl("option", { text: "Characters", value: "characters" });
+    metricSelect.createEl("option", { text: "Lines", value: "lines" });
+    metricSelect.value = metricName;
+    metricSelect.addEventListener("change", () => {
+      this.settings().heatmapMetric = metricSelect.value as WritingMetric;
+      void this.saveSettings().then(() => this.render());
+    });
     const mode = controls.createEl("select", { attr: { "aria-label": "Heatmap range" } });
     mode.createEl("option", { text: "Year", value: "year" });
     mode.createEl("option", { text: "Month", value: "month" });
@@ -111,7 +141,15 @@ export class DashboardView extends ItemView {
     const next = controls.createEl("button", { cls: "clickable-icon", attr: { "aria-label": `Next ${this.heatmapMode}` } });
     setIcon(next, "chevron-right");
     next.addEventListener("click", () => { this.moveHeatmap(1); void this.render(); });
-    renderWordHeatmap(section, writing, this.settings().writingGoal, this.heatmapMode, this.heatmapCursor);
+    const goal = metricGoal(metricName, this.settings().writingGoal);
+    const detail = section.createDiv({ cls: "prodlife-writing-detail" });
+    const renderDetail = (date: string): void => {
+      this.selectedHeatmapDate = date;
+      detail.empty();
+      writingDetail(detail, date, this.writing.day(date));
+    };
+    renderWritingHeatmap(section, writing, goal, label, this.heatmapMode, this.heatmapCursor, this.selectedHeatmapDate, renderDetail);
+    renderDetail(this.selectedHeatmapDate);
   }
 
   private renderAchievementSummary(root: HTMLElement, achievements: Achievement[]): void {
@@ -153,15 +191,25 @@ export class DashboardView extends ItemView {
     else this.heatmapCursor.setMonth(this.heatmapCursor.getMonth() + amount);
   }
 
-  private async loadActivity(app: App): Promise<DayActivity[]> {
+  private async loadActivity(): Promise<DayActivity[]> {
     const activity: DayActivity[] = [];
+    const livePaths = new Set<string>();
     for (const file of this.daily.trackedFiles()) {
-      const cache = app.metadataCache.getFileCache(file);
+      livePaths.add(file.path);
+      const existing = this.activityCache.get(file.path);
+      if (existing?.mtime === file.stat.mtime) {
+        activity.push(existing.activity);
+        continue;
+      }
+      const cache = this.app.metadataCache.getFileCache(file);
       const prodLifeDate = cache?.frontmatter?.prodlife === true && typeof cache.frontmatter.date === "string" ? cache.frontmatter.date : null;
       const date = prodLifeDate ?? this.daily.dateFor(file);
       if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
-      activity.push(activityFromContent(date, await app.vault.cachedRead(file)));
+      const day = activityFromContent(date, await this.app.vault.cachedRead(file));
+      this.activityCache.set(file.path, { mtime: file.stat.mtime, activity: day });
+      activity.push(day);
     }
+    for (const path of this.activityCache.keys()) if (!livePaths.has(path)) this.activityCache.delete(path);
     return activity;
   }
 }
@@ -252,26 +300,69 @@ function metric(parent: HTMLElement, iconName: string, value: string, label: str
   copy.createSpan({ text: label });
 }
 
-function renderWordHeatmap(parent: HTMLElement, values: Record<string, number>, goal: number, mode: "year" | "month", cursor: Date): void {
-  const wrapper = parent.createDiv({ cls: `prodlife-heatmap prodlife-heatmap--${mode}`, attr: { role: "grid", "aria-label": `Word count heatmap for ${mode === "year" ? cursor.getFullYear() : cursor.toLocaleString(undefined, { month: "long", year: "numeric" })}` } });
+function renderWritingHeatmap(
+  parent: HTMLElement,
+  values: Record<string, number>,
+  goal: number,
+  label: string,
+  mode: "year" | "month",
+  cursor: Date,
+  selected: string,
+  select: (date: string) => void
+): void {
+  const scroller = parent.createDiv({ cls: "prodlife-heatmap-scroller" });
+  const wrapper = scroller.createDiv({ cls: `prodlife-heatmap prodlife-heatmap--${mode}`, attr: { role: "grid", "aria-label": `${label} added for ${mode === "year" ? cursor.getFullYear() : cursor.toLocaleString(undefined, { month: "long", year: "numeric" })}` } });
   if (mode === "month") for (const day of ["M", "T", "W", "T", "F", "S", "S"]) wrapper.createSpan({ cls: "prodlife-calendar-weekday", text: day });
   const start = mode === "year" ? new Date(cursor.getFullYear(), 0, 1) : new Date(cursor.getFullYear(), cursor.getMonth(), 1);
   const end = mode === "year" ? new Date(cursor.getFullYear(), 11, 31) : new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0);
   const offset = mode === "year" ? start.getDay() : (start.getDay() + 6) % 7;
   for (let blank = 0; blank < offset; blank++) wrapper.createSpan({ cls: "prodlife-heatmap-blank" });
+  const buttons: HTMLButtonElement[] = [];
   for (const date = new Date(start); date <= end; date.setDate(date.getDate() + 1)) {
-    const words = values[isoDate(date)] ?? 0;
-    const level = Math.min(4, Math.ceil(words / Math.max(1, goal / 4)));
-    wrapper.createEl("button", {
-      cls: `prodlife-heatmap-day level-${level}`,
-      attr: { title: `${date.toLocaleDateString()}: ${words.toLocaleString()} words`, "aria-label": `${date.toLocaleDateString()}, ${words.toLocaleString()} words`, role: "gridcell" }
+    const dateKey = isoDate(date);
+    const value = values[dateKey] ?? 0;
+    const level = Math.min(4, Math.ceil(value / Math.max(1, goal / 4)));
+    const future = date.getTime() > Date.now();
+    const button = wrapper.createEl("button", {
+      cls: `prodlife-heatmap-day level-${level}${dateKey === selected ? " is-selected" : ""}${dateKey === isoDate(new Date()) ? " is-today" : ""}`,
+      attr: { title: `${date.toLocaleDateString()}: ${value.toLocaleString()} ${label} added`, "aria-label": `${date.toLocaleDateString()}, ${value.toLocaleString()} ${label} added`, role: "gridcell", "data-date": dateKey, tabindex: dateKey === selected ? "0" : "-1" }
     });
+    button.disabled = future;
+    button.addEventListener("click", () => {
+      for (const other of buttons) { other.removeClass("is-selected"); other.tabIndex = -1; }
+      button.addClass("is-selected");
+      button.tabIndex = 0;
+      select(dateKey);
+    });
+    buttons.push(button);
   }
+  buttons.forEach((button, index) => button.addEventListener("keydown", (event) => {
+    const offset = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : event.key === "ArrowDown" ? 7 : event.key === "ArrowUp" ? -7 : 0;
+    if (!offset) return;
+    event.preventDefault();
+    const target = buttons[index + offset];
+    if (target && !target.disabled) { target.focus(); target.click(); }
+  }));
   const legend = parent.createDiv({ cls: "prodlife-heatmap-legend" });
-  legend.createSpan({ text: "No words" });
+  legend.createSpan({ text: "None" });
   for (let level = 0; level <= 4; level++) legend.createDiv({ cls: `prodlife-heatmap-day level-${level}` });
   legend.createSpan({ text: `${goal.toLocaleString()}+` });
 }
+
+function writingDetail(parent: HTMLElement, date: string, metrics: WritingMetrics): void {
+  parent.createEl("strong", { text: new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" }) });
+  for (const metric of ["words", "characters", "lines"] as const) {
+    const added = metrics[`${metric}Added`];
+    const removed = metrics[`${metric}Removed`];
+    const item = parent.createDiv();
+    item.createSpan({ text: metricLabel(metric) });
+    item.createEl("b", { text: `+${added.toLocaleString()}` });
+    item.createEl("small", { text: `−${removed.toLocaleString()} · net ${(added - removed).toLocaleString()}` });
+  }
+}
+
+const metricLabel = (metric: WritingMetric): string => metric === "characters" ? "characters" : metric;
+const metricGoal = (metric: WritingMetric, wordGoal: number): number => metric === "characters" ? wordGoal * 6 : metric === "lines" ? Math.max(1, Math.ceil(wordGoal / 12)) : wordGoal;
 
 function petMessage(streak: number, completed: number): string {
   if (completed >= 5) return "You are flying today. Remember to take a proper break.";

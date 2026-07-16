@@ -1,8 +1,9 @@
 :root {
   --prodlife-accent: #7f9d76;
   --prodlife-accent-strong: #5f8058;
-  --prodlife-warm: #d5a455;
-  --prodlife-radius: 15px;
+  --prodlife-radius-lg: 18px;
+  --prodlife-radius-md: 12px;
+  --prodlife-radius-sm: 8px;
 }
 
 .prodlife-dashboard {
@@ -43,7 +44,7 @@
   margin-bottom: 14px;
   padding: clamp(28px, 5vw, 52px);
   overflow: hidden;
-  border-radius: 24px 24px 9px 24px;
+  border-radius: var(--prodlife-radius-lg);
   background:
     radial-gradient(circle at 87% 18%, color-mix(in srgb, var(--prodlife-accent) 24%, transparent), transparent 34%),
     var(--pl-surface);
@@ -82,7 +83,14 @@
   align-items: center;
   gap: 7px;
   text-align: center;
+  padding: 10px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
+  cursor: pointer;
 }
+.prodlife-pet-card:hover { background: color-mix(in srgb, var(--prodlife-accent) 9%, transparent); }
 
 .prodlife-pet-card span {
   max-width: 210px;
@@ -113,7 +121,7 @@
   gap: 4px;
   margin: 14px 0 22px;
   overflow: hidden;
-  border-radius: 9px 18px 18px 18px;
+  border-radius: var(--prodlife-radius-md);
   background: var(--pl-border);
 }
 
@@ -138,7 +146,7 @@
 .prodlife-metric-icon {
   width: 36px;
   height: 36px;
-  border-radius: 11px;
+  border-radius: var(--prodlife-radius-sm);
   background: color-mix(in srgb, var(--prodlife-accent) 14%, transparent);
 }
 
@@ -152,7 +160,7 @@
 .prodlife-panel {
   margin-top: 14px;
   padding: clamp(20px, 3vw, 30px);
-  border-radius: var(--prodlife-radius);
+  border-radius: var(--prodlife-radius-lg);
   background: var(--background-primary);
   box-shadow: inset 0 0 0 1px var(--pl-border);
 }
@@ -169,7 +177,13 @@
   display: grid;
   width: 100%;
   max-width: 100%;
-  overflow: hidden;
+}
+
+.prodlife-heatmap-scroller {
+  width: 100%;
+  overflow-x: auto;
+  padding: 3px 1px 7px;
+  scrollbar-width: thin;
 }
 
 .prodlife-heatmap--year {
@@ -177,6 +191,7 @@
   grid-template-rows: repeat(7, minmax(0, 1fr));
   grid-template-columns: repeat(54, minmax(0, 1fr));
   gap: clamp(1px, .24vw, 3px);
+  min-width: 720px;
 }
 
 .prodlife-heatmap--month {
@@ -199,6 +214,9 @@
 
 button.prodlife-heatmap-day { width: 100%; height: auto; padding: 0; }
 button.prodlife-heatmap-day:hover { outline: 1px solid var(--text-muted); outline-offset: -1px; transform: scale(.92); }
+button.prodlife-heatmap-day:disabled { opacity: .28; cursor: default; }
+button.prodlife-heatmap-day.is-today { box-shadow: inset 0 0 0 1px var(--text-muted); }
+button.prodlife-heatmap-day.is-selected { outline: 2px solid var(--text-normal); outline-offset: 1px; }
 .prodlife-heatmap-day.level-1 { background: color-mix(in srgb, var(--prodlife-accent) 30%, var(--background-primary)); }
 .prodlife-heatmap-day.level-2 { background: color-mix(in srgb, var(--prodlife-accent) 52%, var(--background-primary)); }
 .prodlife-heatmap-day.level-3 { background: color-mix(in srgb, var(--prodlife-accent) 74%, var(--background-primary)); }
@@ -216,6 +234,21 @@ button.prodlife-heatmap-day:hover { outline: 1px solid var(--text-muted); outlin
 }
 .prodlife-heatmap-legend .prodlife-heatmap-day { width: 10px; height: 10px; aspect-ratio: auto; }
 
+.prodlife-writing-detail {
+  display: grid;
+  grid-template-columns: minmax(150px, 1.4fr) repeat(3, minmax(105px, 1fr));
+  gap: 1px;
+  margin-bottom: 16px;
+  overflow: hidden;
+  border: 1px solid var(--pl-border);
+  border-radius: var(--prodlife-radius-md);
+  background: var(--pl-border);
+}
+.prodlife-writing-detail > * { padding: 11px 13px; background: var(--background-secondary); }
+.prodlife-writing-detail > strong { display: flex; align-items: center; font-size: 12px; }
+.prodlife-writing-detail span, .prodlife-writing-detail small { display: block; color: var(--text-muted); font-size: 9px; }
+.prodlife-writing-detail b { display: block; margin: 2px 0; color: var(--prodlife-accent-strong); font-size: 15px; }
+
 .prodlife-achievement-summary {
   display: grid;
   grid-template-columns: 48px minmax(0, 1fr) 24px;
@@ -225,15 +258,15 @@ button.prodlife-heatmap-day:hover { outline: 1px solid var(--text-muted); outlin
   margin-top: 14px;
   padding: 18px 20px;
   border: 0;
-  border-radius: 18px 8px 18px 18px;
-  background: color-mix(in srgb, var(--prodlife-warm) 9%, var(--background-primary));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--prodlife-warm) 22%, transparent);
+  border-radius: var(--prodlife-radius-lg);
+  background: color-mix(in srgb, var(--prodlife-accent) 9%, var(--background-primary));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--prodlife-accent) 22%, transparent);
   text-align: left;
   transition: transform 180ms ease, background-color 180ms ease;
 }
-.prodlife-achievement-summary:hover { background: color-mix(in srgb, var(--prodlife-warm) 14%, var(--background-primary)); transform: translateY(-1px); }
+.prodlife-achievement-summary:hover { background: color-mix(in srgb, var(--prodlife-accent) 14%, var(--background-primary)); transform: translateY(-1px); }
 .prodlife-achievement-summary:active { transform: translateY(1px) scale(.995); }
-.prodlife-achievement-summary-icon { width: 48px; height: 48px; border-radius: 14px; background: color-mix(in srgb, var(--prodlife-warm) 20%, transparent); color: var(--prodlife-warm); }
+.prodlife-achievement-summary-icon { width: 48px; height: 48px; border-radius: var(--prodlife-radius-md); background: color-mix(in srgb, var(--prodlife-accent) 20%, transparent); color: var(--prodlife-accent-strong); }
 .prodlife-achievement-summary strong { display: block; font-size: 15px; }
 .prodlife-achievement-summary span { display: block; margin-top: 4px; color: var(--text-muted); font-size: 11px; }
 .prodlife-achievement-summary-arrow { color: var(--text-faint); }
@@ -256,13 +289,15 @@ button.prodlife-heatmap-day:hover { outline: 1px solid var(--text-muted); outlin
 .prodlife-reminder-group-title.is-overdue { color: var(--text-error); }
 .prodlife-sidebar-reminder {
   display: grid;
-  grid-template-columns: 58px minmax(0, 1fr);
+  grid-template-columns: minmax(42px, 58px) minmax(0, 1fr);
   gap: 8px;
   align-items: start;
   width: 100%;
+  height: auto;
+  min-height: 46px;
   padding: 7px 4px;
   border: 0;
-  border-radius: 5px;
+  border-radius: var(--prodlife-radius-sm);
   background: transparent;
   box-shadow: none;
   color: var(--text-muted);
@@ -271,7 +306,7 @@ button.prodlife-heatmap-day:hover { outline: 1px solid var(--text-muted); outlin
 .prodlife-sidebar-reminder:hover { background: var(--background-secondary-alt); color: var(--text-normal); }
 .prodlife-sidebar-time { font-family: var(--font-monospace); font-size: 11px; white-space: nowrap; }
 .prodlife-sidebar-copy { min-width: 0; }
-.prodlife-sidebar-copy .prodlife-reminder-markdown { display: block; overflow: hidden; color: var(--text-normal); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.prodlife-sidebar-copy .prodlife-reminder-markdown { display: -webkit-box; overflow: hidden; color: var(--text-normal); font-size: 12px; line-height: 1.35; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .prodlife-sidebar-file { display: block; overflow: hidden; margin-top: 2px; color: var(--text-faint); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 
 .prodlife-reminder-modal { text-align: center; }
@@ -288,7 +323,7 @@ button.prodlife-heatmap-day:hover { outline: 1px solid var(--text-muted); outlin
 .prodlife-calendar-header { margin: 16px 0 12px; }
 .prodlife-calendar-header strong { font-size: 13px; }
 .prodlife-calendar { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
-.prodlife-calendar-day { width: 100%; aspect-ratio: 1; padding: 0; border: 0; border-radius: 8px; background: transparent; box-shadow: none; }
+.prodlife-calendar-day { width: 100%; aspect-ratio: 1; padding: 0; border: 0; border-radius: var(--prodlife-radius-sm); background: transparent; box-shadow: none; }
 .prodlife-calendar-day:hover { background: var(--background-modifier-hover); }
 .prodlife-calendar-day.is-outside { color: var(--text-faint); opacity: .5; }
 .prodlife-calendar-day.is-today { box-shadow: inset 0 0 0 1px var(--prodlife-accent); }
@@ -301,17 +336,17 @@ button.prodlife-heatmap-day:hover { outline: 1px solid var(--text-muted); outlin
 .prodlife-achievement-modal { width: min(760px, calc(100vw - 24px)); }
 .prodlife-achievement-modal h3 { margin: 24px 0 8px; color: var(--text-muted); font-size: 12px; }
 .prodlife-achievement-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.prodlife-achievement-card { min-width: 0; padding: 14px; border-radius: 12px; background: var(--background-secondary); opacity: .52; }
-.prodlife-achievement-card.is-unlocked { background: color-mix(in srgb, var(--prodlife-warm) 9%, var(--background-secondary)); opacity: 1; }
+.prodlife-achievement-card { min-width: 0; padding: 14px; border-radius: var(--prodlife-radius-md); background: var(--background-secondary); opacity: .52; }
+.prodlife-achievement-card.is-unlocked { background: color-mix(in srgb, var(--prodlife-accent) 9%, var(--background-secondary)); opacity: 1; }
 .prodlife-achievement-icon { display: grid; place-items: center; width: 32px; height: 32px; margin-bottom: 9px; color: var(--text-muted); }
-.prodlife-achievement-card.is-unlocked .prodlife-achievement-icon { color: var(--prodlife-warm); }
+.prodlife-achievement-card.is-unlocked .prodlife-achievement-icon { color: var(--prodlife-accent-strong); }
 .prodlife-achievement-card strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .prodlife-achievement-card span, .prodlife-achievement-card small { margin-top: 3px; color: var(--text-muted); font-size: 9px; }
-.prodlife-achievement-card progress { width: 100%; height: 4px; margin-top: 11px; accent-color: var(--prodlife-warm); }
+.prodlife-achievement-card progress { width: 100%; height: 4px; margin-top: 11px; accent-color: var(--prodlife-accent); }
 
 .prodlife-unlock-modal { text-align: center; }
 .prodlife-unlock-modal .prodlife-pip-sprite { margin: -18px auto 4px; }
-.prodlife-unlock-badge { width: 64px; height: 64px; margin: 18px auto 10px; border-radius: 19px; background: color-mix(in srgb, var(--prodlife-warm) 18%, var(--background-secondary)); color: var(--prodlife-warm); }
+.prodlife-unlock-badge { width: 64px; height: 64px; margin: 18px auto 10px; border-radius: var(--prodlife-radius-lg); background: color-mix(in srgb, var(--prodlife-accent) 18%, var(--background-secondary)); color: var(--prodlife-accent-strong); }
 .prodlife-unlock-modal h2, .prodlife-unlock-modal h3 { margin: 5px 0; }
 .prodlife-unlock-modal > .modal-content > p:last-of-type { color: var(--text-muted); }
 
@@ -334,10 +369,49 @@ button.prodlife-heatmap-day:hover { outline: 1px solid var(--text-muted); outlin
 }
 .prodlife-pet-popup.is-visible { opacity: 1; pointer-events: auto; transform: translateY(0) scale(1); }
 .prodlife-pet-popup .prodlife-pip-sprite { width: 82px; height: 82px; }
-.prodlife-pet-speech { position: relative; padding: 14px 38px 14px 16px; border: 1px solid var(--background-modifier-border); border-radius: 16px 16px 16px 5px; background: var(--background-primary); box-shadow: 0 12px 32px color-mix(in srgb, var(--background-primary-alt) 34%, transparent); }
+.prodlife-pet-speech { position: relative; padding: 14px 38px 14px 16px; border: 1px solid var(--background-modifier-border); border-radius: var(--prodlife-radius-md); background: var(--background-primary); box-shadow: 0 12px 32px color-mix(in srgb, var(--background-primary-alt) 34%, transparent); }
 .prodlife-pet-speech strong { font-size: 11px; color: var(--prodlife-accent-strong); }
 .prodlife-pet-speech p { margin: 4px 0 0; font-size: 12px; line-height: 1.45; }
 .prodlife-pet-speech button { position: absolute; top: 7px; right: 7px; }
+.prodlife-pet-actions { display: flex; gap: 6px; margin-top: 10px; }
+.prodlife-pet-actions button { position: static; padding: 4px 8px; font-size: 10px; }
+
+.prodlife-settings-intro {
+  position: relative;
+  margin: 0 0 24px;
+  padding: 22px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--prodlife-radius-lg);
+  background: color-mix(in srgb, var(--prodlife-accent) 8%, var(--background-secondary));
+}
+.prodlife-settings-title { display: block; font-size: 20px; }
+.prodlife-settings-intro p { max-width: 640px; margin: 7px 0 16px; color: var(--text-muted); line-height: 1.5; }
+.prodlife-settings { max-width: 780px; }
+.prodlife-settings .setting-item { padding: 14px 0; }
+.prodlife-settings .setting-item-control { flex-wrap: wrap; gap: 8px; }
+.prodlife-settings-details {
+  margin: 10px 0 24px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--prodlife-radius-md);
+  background: var(--background-secondary);
+}
+.prodlife-settings-details summary { padding: 14px 16px; cursor: pointer; font-weight: 650; }
+.prodlife-settings-details[open] summary { border-bottom: 1px solid var(--background-modifier-border); }
+.prodlife-settings-details > p { margin: 12px 16px 0; color: var(--text-muted); font-size: 12px; }
+.prodlife-settings-details .setting-item { margin: 0 16px; }
+.prodlife-settings-details pre { margin: 12px 16px 16px; overflow-x: auto; }
+
+.prodlife-dashboard button:focus-visible,
+.prodlife-reminder-sidebar button:focus-visible,
+.prodlife-pet-popup button:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 2px;
+}
+.prodlife-welcome-modal { width: min(620px, calc(100vw - 24px)); }
+.prodlife-welcome-modal .prodlife-pip-sprite { float: right; width: 88px; height: 88px; margin: -5px 0 10px 18px; }
+.prodlife-welcome-modal > .modal-content > p { line-height: 1.55; }
+.prodlife-welcome-modal ul { margin: 18px 0 22px; padding-left: 20px; color: var(--text-muted); }
+.prodlife-welcome-modal li { margin: 7px 0; }
 
 @media (prefers-reduced-motion: reduce) {
   .prodlife-pip-sprite { animation: none; }
@@ -345,17 +419,36 @@ button.prodlife-heatmap-day:hover { outline: 1px solid var(--text-muted); outlin
 }
 
 @media (max-width: 820px) {
-  .prodlife-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .prodlife-achievement-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 620px) {
-  .prodlife-dashboard { padding: 16px; }
-  .prodlife-hero { grid-template-columns: 1fr; min-height: 0; }
-  .prodlife-pet-card { display: none; }
-  .prodlife-section-header { align-items: flex-start; flex-direction: column; }
-  .prodlife-heatmap-controls { width: 100%; justify-content: space-between; }
   .prodlife-achievement-grid { grid-template-columns: 1fr; }
   .prodlife-pet-popup { right: 12px; bottom: 18px; grid-template-columns: 66px minmax(160px, 1fr); max-width: calc(100vw - 24px); }
   .prodlife-pet-popup .prodlife-pip-sprite { width: 66px; height: 66px; }
 }
+
+.prodlife-dashboard.is-narrow { padding: 18px; }
+.prodlife-dashboard.is-narrow .prodlife-hero { grid-template-columns: 1fr; min-height: 0; padding: 30px; }
+.prodlife-dashboard.is-narrow .prodlife-hero h2 { font-size: clamp(36px, 8vw, 48px); }
+.prodlife-dashboard.is-narrow .prodlife-pet-card { align-items: center; flex-direction: row; margin-top: 10px; text-align: left; }
+.prodlife-dashboard.is-narrow .prodlife-pet-card .prodlife-pip-sprite { width: 68px; height: 68px; }
+.prodlife-dashboard.is-narrow .prodlife-pet-card span { max-width: 260px; }
+.prodlife-dashboard.is-narrow .prodlife-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.prodlife-dashboard.is-narrow .prodlife-section-header { align-items: flex-start; flex-direction: column; }
+.prodlife-dashboard.is-narrow .prodlife-heatmap-controls { width: 100%; flex-wrap: wrap; }
+.prodlife-dashboard.is-narrow .prodlife-heatmap-period { flex: 1; }
+.prodlife-dashboard.is-narrow .prodlife-writing-detail { grid-template-columns: 1fr; }
+.prodlife-dashboard.is-narrow .prodlife-writing-detail > strong { grid-column: auto; }
+.prodlife-dashboard.is-narrow .prodlife-writing-detail > div { display: grid; grid-template-columns: 1fr auto minmax(92px, auto); gap: 8px; align-items: center; }
+.prodlife-dashboard.is-narrow .prodlife-writing-detail b { margin: 0; }
+.prodlife-dashboard.is-narrow .prodlife-writing-detail small { text-align: right; }
+
+.prodlife-dashboard.is-compact { padding: 12px; }
+.prodlife-dashboard.is-compact .prodlife-hero { padding: 24px; }
+.prodlife-dashboard.is-compact .prodlife-metric { padding: 13px 10px; }
+.prodlife-dashboard.is-compact .prodlife-metric-icon { width: 30px; height: 30px; }
+.prodlife-dashboard.is-compact .prodlife-panel { padding: 18px; }
+.prodlife-dashboard.is-compact .prodlife-pet-card { display: grid; grid-template-columns: 56px 1fr; }
+.prodlife-dashboard.is-compact .prodlife-pet-card .prodlife-pip-sprite { grid-row: 1 / 3; width: 56px; height: 56px; }
+.prodlife-reminder-sidebar.is-compact .prodlife-sidebar-reminder { grid-template-columns: 1fr; gap: 2px; }

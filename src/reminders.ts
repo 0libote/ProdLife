@@ -4,7 +4,9 @@ import type { ProdLifeData, ProdLifeSettings, ReminderItem } from "./types";
 
 export class ReminderService {
   private showing = false;
-  private dirty = true;
+  private fullScan = true;
+  private dirtyPaths = new Set<string>();
+  private byPath = new Map<string, ReminderItem[]>();
   private cached: ReminderItem[] = [];
   private readyAt = 0;
 
@@ -13,22 +15,35 @@ export class ReminderService {
     private settings: () => ProdLifeSettings,
     private data: () => ProdLifeData,
     private persist: () => Promise<void>,
-    private component: Component
+    private component: Component,
+    private dailyLinkFor: (date: string) => string
   ) {}
 
   async scan(): Promise<ReminderItem[]> {
-    if (!this.dirty) return this.cached;
-    const reminders: ReminderItem[] = [];
-    for (const file of this.reminderFiles()) {
-      const content = await this.app.vault.cachedRead(file);
-      reminders.push(...parseReminders(content, file.path, this.settings().defaultReminderTime));
+    if (!this.fullScan && !this.dirtyPaths.size) return this.cached;
+    if (this.fullScan) {
+      const files = this.reminderFiles();
+      const paths = new Set(files.map((file) => file.path));
+      for (const path of this.byPath.keys()) if (!paths.has(path)) this.byPath.delete(path);
+      for (const file of files) await this.scanFile(file);
+      this.fullScan = false;
+      this.dirtyPaths.clear();
+    } else if (this.dirtyPaths.size) {
+      for (const path of this.dirtyPaths) {
+        const file = this.app.vault.getAbstractFileByPath(path);
+        if (file instanceof TFile && this.includes(file)) await this.scanFile(file);
+        else this.byPath.delete(path);
+      }
+      this.dirtyPaths.clear();
     }
-    this.cached = reminders.sort((a, b) => a.due - b.due);
-    this.dirty = false;
+    this.cached = [...this.byPath.values()].flat().sort((a, b) => a.due - b.due);
     return this.cached;
   }
 
-  invalidate(): void { this.dirty = true; }
+  invalidate(path?: string): void {
+    if (path && !this.fullScan) this.dirtyPaths.add(path);
+    else this.fullScan = true;
+  }
   delayUntil(timestamp: number): void { this.readyAt = timestamp; }
 
   async checkDue(): Promise<void> {
@@ -37,13 +52,14 @@ export class ReminderService {
     const state = this.data();
     const due = (await this.scan()).find((item) =>
       !item.completed
+      && !state.completedReminders[item.key]
       && item.due <= now
-      && (state.snoozedUntil[item.id] ?? 0) <= now
-      && now - (state.notified[item.id] ?? 0) > 12 * 60 * 60 * 1000
+      && (state.snoozedUntil[item.key] ?? 0) <= now
+      && now - (state.notified[item.key] ?? 0) > 12 * 60 * 60 * 1000
     );
     if (!due) return;
     this.showing = true;
-    state.notified[due.id] = now;
+    state.notified[due.key] = now;
     await this.persist();
     new ReminderModal(this.app, due, this.settings().snoozeMinutes, this.component, {
       complete: async () => this.complete(due),
@@ -54,22 +70,30 @@ export class ReminderService {
   }
 
   async complete(item: ReminderItem): Promise<void> {
+    const state = this.data();
+    state.completedReminders[item.key] = Date.now();
+    delete state.snoozedUntil[item.key];
+    delete state.notified[item.key];
     const file = this.app.vault.getAbstractFileByPath(item.path);
-    if (!(file instanceof TFile)) return;
-    await this.app.vault.process(file, (content) => {
-      const lines = content.split("\n");
-      const line = lines[item.line];
-      if (line) lines[item.line] = line.replace(/^(\s*[-*+]\s+)\[[^\]]\]/, "$1[x]");
-      return lines.join("\n");
-    });
-    delete this.data().snoozedUntil[item.id];
+    if (file instanceof TFile) {
+      await this.app.vault.process(file, (content) => {
+        const lines = content.split("\n");
+        const atOriginalLine = parseReminders(lines[item.line] ?? "", item.path, this.settings().defaultReminderTime)[0];
+        const lineIndex = atOriginalLine?.key === item.key
+          ? item.line
+          : lines.findIndex((line) => parseReminders(line, item.path, this.settings().defaultReminderTime)[0]?.key === item.key);
+        if (lineIndex >= 0) lines[lineIndex] = (lines[lineIndex] ?? "").replace(/^(\s*[-*+]\s+)\[[^\]]\]/, "$1[x]");
+        return lines.join("\n");
+      });
+    }
+    this.invalidate(item.path);
     new Notice(`Completed: ${item.text}`);
     await this.persist();
   }
 
   async snooze(item: ReminderItem, minutes: number): Promise<void> {
-    this.data().snoozedUntil[item.id] = Date.now() + minutes * 60_000;
-    delete this.data().notified[item.id];
+    this.data().snoozedUntil[item.key] = Date.now() + minutes * 60_000;
+    delete this.data().notified[item.key];
     await this.persist();
     new Notice(`${this.settings().petName} will remind you again in ${minutes} minutes.`);
   }
@@ -85,7 +109,28 @@ export class ReminderService {
   }
 
   editCurrentLine(editor: Editor): void {
-    new ReminderEditorModal(this.app, editor, this.settings().defaultReminderTime, this.settings().linkReminderDates, () => this.invalidate()).open();
+    const cursor = editor.getCursor();
+    const line = editor.getLine(cursor.line);
+    if (!/^\s*[-*+]\s+\[[^\]]\]/.test(line)) {
+      const indentation = line.match(/^\s*/)?.[0] ?? "";
+      editor.setLine(cursor.line, `${indentation}- [ ] ${line.trim()}`);
+      new Notice("ProdLife turned this line into a task so the reminder can be completed.");
+    }
+    const path = this.app.workspace.getActiveFile()?.path;
+    new ReminderEditorModal(this.app, editor, this.settings().defaultReminderTime, this.settings().linkReminderDates, this.dailyLinkFor, () => this.invalidate(path)).open();
+  }
+
+  private async scanFile(file: TFile): Promise<void> {
+    const content = await this.app.vault.cachedRead(file);
+    this.byPath.set(file.path, parseReminders(content, file.path, this.settings().defaultReminderTime).map((item) => ({
+      ...item,
+      completed: item.completed || Boolean(this.data().completedReminders[item.key])
+    })));
+  }
+
+  private includes(file: TFile): boolean {
+    const folders = this.settings().reminderFolders.map((path) => normalizePath(path.trim())).filter(Boolean);
+    return !folders.length || folders.some((path) => file.path === path || file.path.startsWith(`${path}/`));
   }
 
   private reminderFiles(): TFile[] {
@@ -157,6 +202,7 @@ class ReminderEditorModal extends Modal {
     private editor: Editor,
     private defaultTime: string,
     private linkDate: boolean,
+    private dailyLinkFor: (date: string) => string,
     private changed: () => void
   ) { super(app); }
 
@@ -213,7 +259,8 @@ class ReminderEditorModal extends Modal {
     today.addEventListener("click", () => { this.selected = new Date(); this.visibleMonth = new Date(this.selected.getFullYear(), this.selected.getMonth(), 1); this.render(); });
     const save = actions.createEl("button", { cls: "mod-cta", text: "Save reminder" });
     save.addEventListener("click", () => {
-      this.editor.setLine(this.cursorLine, upsertReminder(this.originalLine, localDate(this.selected), this.allDay ? "" : this.time, this.linkDate));
+      const date = localDate(this.selected);
+      this.editor.setLine(this.cursorLine, upsertReminder(this.originalLine, date, this.allDay ? "" : this.time, this.linkDate, this.dailyLinkFor(date)));
       this.changed();
       this.close();
     });

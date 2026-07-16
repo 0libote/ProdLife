@@ -9,35 +9,39 @@ export class ProdLifeSettingTab extends PluginSettingTab {
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
-    containerEl.createEl("p", { text: "One system for daily notes, reminders, and sustainable momentum." });
+    containerEl.addClass("prodlife-settings");
+    const intro = containerEl.createDiv({ cls: "prodlife-settings-intro" });
+    intro.createEl("strong", { cls: "prodlife-settings-title", text: "ProdLife" });
+    intro.createEl("p", { text: "Choose where your day lives, when reminders appear, and what progress ProdLife keeps." });
 
+    new Setting(containerEl).setName("Getting started").setHeading();
+    new Setting(containerEl)
+      .setName("Setup guide")
+      .setDesc("Review the recommended workflow without changing anything until you confirm.")
+      .addButton((button) => button.setButtonText("Open guide").onClick(() => this.plugin.openSetupGuide()));
     new Setting(containerEl)
       .setName("Import your current workflow")
-      .setDesc("Copies the core Daily Notes folder, format, and template plus Reminder's default time, linked-date preference, interval, and snooze options into ProdLife. Your notes are not changed.")
+      .setDesc("Copy compatible Daily Notes and Reminder settings. Notes are not changed. Daily Five users should keep its fallback folder and date format matched to ProdLife.")
       .addButton((button) => button.setButtonText("Import settings").onClick(() => void this.plugin.importLegacySettings()));
-    containerEl.createEl("p", {
-      cls: "setting-item-description",
-      text: "Daily Five compatibility: before disabling the core Daily Notes plugin, set Daily Five’s fallback folder and date format to the same values shown below. You may also leave the core plugin enabled and simply use ProdLife’s commands."
-    });
 
     new Setting(containerEl).setName("Daily notes").setHeading();
     new Setting(containerEl)
       .setName("Daily notes folder")
-      .setDesc("Folder where ProdLife creates daily notes. Nested date formats are supported.")
-      .addText((text) => text.setPlaceholder("Daily").setValue(this.plugin.settings.dailyFolder).onChange((value) => this.save("dailyFolder", value.trim())));
+      .setDesc("Folder where ProdLife creates daily notes. Leave blank for the vault root. Nested date formats are supported.")
+      .addText((text) => text.setPlaceholder("Vault root").setValue(this.plugin.settings.dailyFolder).onChange((value) => this.save("dailyFolder", value.trim())));
     new Setting(containerEl)
       .setName("Date format")
       .setDesc("Moment.js format used for note names, for example YYYY-MM-DD or YYYY/MM/YYYY-MM-DD.")
       .addText((text) => text.setPlaceholder("YYYY-MM-DD").setValue(this.plugin.settings.dateFormat).onChange((value) => this.save("dateFormat", value.trim() || "YYYY-MM-DD")));
+    new Setting(containerEl)
+      .setName("Default template")
+      .setDesc("Used unless a weekday override is set.")
+      .addText((text) => text.setPlaceholder("Templates/Daily").setValue(this.plugin.settings.defaultTemplate).onChange((value) => this.save("defaultTemplate", value.trim())));
     let weekdayTemplate: TextComponent | null = null;
     let selectedDay = String(new Date().getDay());
     new Setting(containerEl)
-      .setName("Daily note templates")
-      .setDesc("Default template, weekday picker, and that weekday’s override. Leave an override blank to use the default.")
-      .addText((text) => {
-        text.inputEl.setAttr("aria-label", "Default daily note template");
-        text.setPlaceholder("Default template").setValue(this.plugin.settings.defaultTemplate).onChange((value) => this.save("defaultTemplate", value.trim()));
-      })
+      .setName("Weekday template")
+      .setDesc("Choose a day, then optionally give it a different template.")
       .addDropdown((dropdown) => {
         DAYS.forEach((day, index) => { dropdown.addOption(String(index), day); });
         dropdown.setValue(selectedDay).onChange((value) => {
@@ -52,8 +56,11 @@ export class ProdLifeSettingTab extends PluginSettingTab {
           this.plugin.settings.weekdayTemplates[selectedDay] = value.trim();
           await this.plugin.saveSettings();
         });
-      })
-      .addButton((button) => button.setButtonText("Add task").setTooltip("Add a dated task without writing template formulas").onClick(() => new TemplateTaskModal(this.app, this.plugin).open()));
+      });
+    new Setting(containerEl)
+      .setName("Recurring template task")
+      .setDesc("Add a dated task without writing template formulas.")
+      .addButton((button) => button.setButtonText("Add task").onClick(() => new TemplateTaskModal(this.app, this.plugin).open()));
     new Setting(containerEl)
       .setName("Roll unfinished tasks forward")
       .setDesc("Preserve open tasks, nested children, and their headings from the previous daily note.")
@@ -62,11 +69,14 @@ export class ProdLifeSettingTab extends PluginSettingTab {
       .setName("Remove empty headings")
       .setDesc("Do not carry headings that contain no unfinished tasks into the next note.")
       .addToggle((toggle) => toggle.setValue(this.plugin.settings.removeEmptyHeadings).onChange((value) => this.save("removeEmptyHeadings", value)));
-    let archiveDays: TextComponent | null = null;
     new Setting(containerEl)
       .setName("Archive folder")
-      .setDesc("Archive destination, automatic schedule, and retention age.")
-      .addText((text) => text.setPlaceholder("Archive/Daily").setValue(this.plugin.settings.archiveFolder).onChange((value) => this.save("archiveFolder", value.trim())))
+      .setDesc("Where old daily notes move. ProdLife never deletes them.")
+      .addText((text) => text.setPlaceholder("Archive/Daily").setValue(this.plugin.settings.archiveFolder).onChange((value) => this.save("archiveFolder", value.trim())));
+    let archiveAfter: Setting | null = null;
+    new Setting(containerEl)
+      .setName("Automatic archiving")
+      .setDesc("Manual keeps every note in place until you run the archive command.")
       .addDropdown((dropdown) => dropdown
         .addOption("off", "Manual")
         .addOption("next-day", "Next day")
@@ -74,19 +84,23 @@ export class ProdLifeSettingTab extends PluginSettingTab {
         .setValue(this.plugin.settings.autoArchiveMode)
         .onChange((value) => {
           if (value !== "off" && value !== "next-day" && value !== "after-days") return;
-          archiveDays?.setDisabled(value !== "after-days");
-          void this.save("autoArchiveMode", value);
-        }))
+          if (value !== "off" && !this.plugin.settings.archiveFolder.trim()) {
+            this.plugin.settings.archiveFolder = "Archive/Daily";
+          }
+          void this.save("autoArchiveMode", value).then(() => archiveAfter?.settingEl.toggleClass("is-hidden", value !== "after-days"));
+        }));
+    archiveAfter = new Setting(containerEl)
+      .setName("Archive after")
+      .setDesc("Number of complete days to keep in the daily-note folder.")
       .addText((text) => {
-        archiveDays = text;
         text.inputEl.type = "number";
         text.inputEl.min = "1";
-        text.inputEl.setAttr("aria-label", "Days before automatic archive");
-        text.setPlaceholder("Days").setValue(String(this.plugin.settings.autoArchiveDays)).setDisabled(this.plugin.settings.autoArchiveMode !== "after-days").onChange((value) => {
+        text.setValue(String(this.plugin.settings.autoArchiveDays)).onChange((value) => {
           const days = Number(value);
           if (Number.isInteger(days) && days > 0) void this.save("autoArchiveDays", days);
         });
       });
+    archiveAfter.settingEl.toggleClass("is-hidden", this.plugin.settings.autoArchiveMode !== "after-days");
 
     new Setting(containerEl).setName("Reminders").setHeading();
     new Setting(containerEl)
@@ -99,16 +113,19 @@ export class ProdLifeSettingTab extends PluginSettingTab {
       .addText((text) => text.setPlaceholder("09:00").setValue(this.plugin.settings.defaultReminderTime).onChange((value) => this.save("defaultReminderTime", /^\d{1,2}:\d{2}$/.test(value) ? value : "09:00")));
     new Setting(containerEl)
       .setName("Link reminder dates")
-      .setDesc("New reminders use linked dates such as (@[[2026-07-12]] 09:30), matching Reminder's linked-date mode.")
+      .setDesc("Link new reminders to the matching daily note path while keeping an ISO due date for reliable parsing.")
       .addToggle((toggle) => toggle.setValue(this.plugin.settings.linkReminderDates).onChange((value) => this.save("linkReminderDates", value)));
-    new Setting(containerEl)
+    const reminderAdvanced = containerEl.createEl("details", { cls: "prodlife-settings-details" });
+    reminderAdvanced.createEl("summary", { text: "Reminder scope and timing" });
+    reminderAdvanced.createEl("p", { text: "Change these only if vault-wide scanning or the defaults do not suit your workflow." });
+    new Setting(reminderAdvanced)
       .setName("Reminder folders")
       .setDesc("Comma-separated folders or files to scan. Leave blank to scan Markdown files across the vault, which matches Reminder's behavior.")
       .addText((text) => text
         .setPlaceholder("Daily, FTL")
         .setValue(this.plugin.settings.reminderFolders.join(", "))
         .onChange((value) => this.save("reminderFolders", value.split(",").map((path) => path.trim()).filter(Boolean))));
-    new Setting(containerEl)
+    new Setting(reminderAdvanced)
       .setName("Snooze options")
       .setDesc("Comma-separated delay choices in minutes. 1440 is one day and 10080 is one week.")
       .addText((text) => text
@@ -118,11 +135,11 @@ export class ProdLifeSettingTab extends PluginSettingTab {
           const minutes = value.split(",").map(Number).filter((item) => Number.isFinite(item) && item > 0);
           if (minutes.length) void this.save("snoozeMinutes", minutes);
         }));
-    new Setting(containerEl)
+    new Setting(reminderAdvanced)
       .setName("Scan interval")
       .setDesc("Seconds between reminder checks. Takes effect after reloading the plugin.")
       .addSlider((slider) => slider.setLimits(15, 300, 15).setValue(this.plugin.settings.reminderIntervalSeconds).onChange((value) => this.save("reminderIntervalSeconds", value)));
-    new Setting(containerEl)
+    new Setting(reminderAdvanced)
       .setName("Startup delay")
       .setDesc("Wait for Obsidian Sync or another sync plugin before showing overdue reminders and auto-archiving.")
       .addSlider((slider) => slider.setLimits(5, 120, 5).setValue(this.plugin.settings.startupDelaySeconds).onChange((value) => this.save("startupDelaySeconds", value)));
@@ -130,7 +147,7 @@ export class ProdLifeSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName("Dashboard and writing").setHeading();
     new Setting(containerEl)
       .setName("Writing folders")
-      .setDesc("Comma-separated files or folders for persistent word tracking. Leave blank for the whole vault.")
+      .setDesc("Comma-separated files or folders for permanent words, characters, and lines tracking. Leave blank for the whole vault. The first run scans them once; later updates are incremental.")
       .addText((text) => text.setPlaceholder("Daily, Notes").setValue(this.plugin.settings.writingFolders.join(", ")).onChange((value) => this.save("writingFolders", value.split(",").map((path) => path.trim()).filter(Boolean))));
     new Setting(containerEl)
       .setName("Daily word goal")
@@ -148,6 +165,17 @@ export class ProdLifeSettingTab extends PluginSettingTab {
       .addDropdown((dropdown) => dropdown.addOption("year", "Year").addOption("month", "Month").setValue(this.plugin.settings.heatmapMode).onChange((value) => {
         if (value === "year" || value === "month") return this.save("heatmapMode", value);
       }));
+    new Setting(containerEl)
+      .setName("Default heatmap metric")
+      .setDesc("Switch between added words, characters, and lines. Removed amounts remain visible in each day’s detail.")
+      .addDropdown((dropdown) => dropdown
+        .addOption("words", "Words added")
+        .addOption("characters", "Characters added")
+        .addOption("lines", "Lines added")
+        .setValue(this.plugin.settings.heatmapMetric)
+        .onChange((value) => {
+          if (value === "words" || value === "characters" || value === "lines") return this.save("heatmapMetric", value);
+        }));
     new Setting(containerEl)
       .setName("Dashboard layout")
       .setDesc("Choose, hide, and reorder dashboard sections from the dashboard itself.")
@@ -172,14 +200,16 @@ export class ProdLifeSettingTab extends PluginSettingTab {
         .setValue(this.plugin.settings.quotes.join("\n"))
         .onChange((value) => this.save("quotes", value.split("\n").map((line) => line.trim()).filter(Boolean))));
 
-    new Setting(containerEl).setName("Template reference").setHeading();
-    const reference = containerEl.createEl("pre");
+    const templateReference = containerEl.createEl("details", { cls: "prodlife-settings-details" });
+    templateReference.createEl("summary", { text: "Template reference" });
+    templateReference.createEl("p", { text: "Use these only when building templates by hand." });
+    const reference = templateReference.createEl("pre");
     reference.createEl("code", { text: "{{date}}  {{time}}  {{title}}  {{previous_note}}  {{rollover}}\n{{schedule * * 1-5}}\n- [ ] Runs Monday to Friday" });
   }
 
   private async save<Key extends keyof ProdLifePlugin["settings"]>(key: Key, value: ProdLifePlugin["settings"][Key]): Promise<void> {
     this.plugin.settings[key] = value;
-    await this.plugin.saveSettings();
+    await this.plugin.saveSettings(key === "defaultReminderTime" || key === "reminderFolders");
   }
 }
 

@@ -59,67 +59,89 @@ export class DailyNotesService {
     }
   }
 
+  linkFor(date: string): string {
+    const parsed = toMoment(date, "YYYY-MM-DD", true);
+    if (!parsed.isValid()) return date;
+    return normalizePath(`${this.settings().dailyFolder.trim()}/${parsed.format(this.settings().dateFormat)}`);
+  }
+
   dailyFiles(): TFile[] {
-    const folder = normalizePath(this.settings().dailyFolder);
-    return this.filesIn(folder).filter((file) => this.dateFor(file) !== null);
+    const folder = folderPath(this.settings().dailyFolder);
+    return this.filesIn(folder).filter((file) => this.dateForIn(file, folder) !== null);
   }
 
   trackedFiles(): TFile[] {
-    const paths = [normalizePath(this.settings().dailyFolder)];
-    const archive = normalizePath(this.settings().archiveFolder);
+    const paths = [folderPath(this.settings().dailyFolder)];
+    const archive = folderPath(this.settings().archiveFolder);
     if (archive) paths.push(archive);
     const files: TFile[] = [];
-    for (const path of paths) files.push(...this.filesIn(path));
+    for (const path of paths) files.push(...this.filesIn(path).filter((file) => this.dateForIn(file, path) !== null));
     return [...new Map(files.map((file) => [file.path, file])).values()];
   }
 
   dateFor(file: TFile): string | null {
-    const relative = this.relativeDailyPath(file);
-    if (relative === null) return null;
-    const parsed = toMoment(relative, this.settings().dateFormat, true);
-    return parsed.isValid() ? parsed.format("YYYY-MM-DD") : null;
+    return this.dateForIn(file, folderPath(this.settings().dailyFolder))
+      ?? this.dateForIn(file, folderPath(this.settings().archiveFolder));
   }
 
   findPrevious(date: Date): TFile | null {
     const before = toMoment(date).startOf("day");
-    return this.dailyFiles()
-      .map((file) => ({ file, date: toMoment(this.relativeDailyPath(file) ?? "", this.settings().dateFormat, true) }))
+    return this.trackedFiles()
+      .map((file) => ({ file, date: toMoment(this.relativePathIn(file, this.folderFor(file)) ?? "", this.settings().dateFormat, true) }))
       .filter((entry) => entry.date.isValid() && entry.date.isBefore(before))
       .sort((a, b) => b.date.valueOf() - a.date.valueOf())[0]?.file ?? null;
   }
 
-  async archiveOldNotes(ageDays = 1, notify = true, preservePath = ""): Promise<number> {
-    const archiveFolder = normalizePath(this.settings().archiveFolder);
+  async archiveOldNotes(ageDays = 1, notify = true): Promise<number> {
+    const archiveFolder = folderPath(this.settings().archiveFolder);
     if (!archiveFolder) {
       new Notice("Set an archive folder in ProdLife settings first.");
       return 0;
     }
+    const dailyFolder = folderPath(this.settings().dailyFolder);
+    if (archiveFolder === dailyFolder) {
+      new Notice("The daily note and archive folders must be different.");
+      return 0;
+    }
     const today = new Date();
     const files = this.dailyFiles().filter((file) => {
-      if (file.path === preservePath) return false;
       const date = this.dateFor(file);
       return date !== null && shouldArchiveDaily(date, today, ageDays);
     });
     let moved = 0;
+    let conflicts = 0;
+    let failed = 0;
     for (const file of files) {
-      const relative = `${this.relativeDailyPath(file) ?? file.basename}.md`;
+      const relative = `${this.relativePathIn(file, dailyFolder) ?? file.basename}.md`;
       const destination = normalizePath(`${archiveFolder}/${relative}`);
-      if (this.app.vault.getAbstractFileByPath(destination)) continue;
-      await this.ensureFolder(destination.substring(0, destination.lastIndexOf("/")));
-      await this.app.fileManager.renameFile(file, destination);
-      moved++;
+      if (this.app.vault.getAbstractFileByPath(destination)) {
+        conflicts++;
+        continue;
+      }
+      try {
+        await this.ensureFolder(destination.substring(0, destination.lastIndexOf("/")));
+        await this.app.fileManager.renameFile(file, destination);
+        moved++;
+      } catch (error) {
+        failed++;
+        console.error(`ProdLife could not archive ${file.path}`, error);
+      }
     }
-    if (notify) new Notice(moved ? `ProdLife archived ${moved} daily note${moved === 1 ? "" : "s"}.` : "No daily notes needed archiving.");
+    if (notify) {
+      const details = [
+        moved ? `archived ${moved} daily note${moved === 1 ? "" : "s"}` : "archived none",
+        conflicts ? `${conflicts} already existed` : "",
+        failed ? `${failed} failed` : ""
+      ].filter(Boolean).join(" · ");
+      new Notice(files.length ? `ProdLife ${details}.` : "No daily notes needed archiving.");
+    }
     return moved;
   }
 
   async autoArchive(): Promise<number> {
     const settings = this.settings();
     if (settings.autoArchiveMode === "off" || !settings.archiveFolder.trim()) return 0;
-    const title = toMoment().format(settings.dateFormat);
-    const today = this.app.vault.getAbstractFileByPath(normalizePath(`${settings.dailyFolder}/${title}.md`));
-    const preserve = today instanceof TFile ? "" : this.findPrevious(new Date())?.path ?? "";
-    return this.archiveOldNotes(settings.autoArchiveMode === "next-day" ? 1 : settings.autoArchiveDays, false, preserve);
+    return this.archiveOldNotes(settings.autoArchiveMode === "next-day" ? 1 : settings.autoArchiveDays, false);
   }
 
   async addTaskToTemplate(path: string, title: string, time: string, allDay: boolean): Promise<boolean> {
@@ -180,10 +202,21 @@ export class DailyNotesService {
     return files;
   }
 
-  private relativeDailyPath(file: TFile): string | null {
-    const folder = normalizePath(this.settings().dailyFolder);
-    if (!folder) return file.path.slice(0, -3);
+  private relativePathIn(file: TFile, folder: string): string | null {
+    if (!folder) return file.path.includes("/") && !this.settings().dateFormat.includes("/") ? null : file.path.slice(0, -3);
     return file.path.startsWith(`${folder}/`) ? file.path.slice(folder.length + 1, -3) : null;
+  }
+
+  private dateForIn(file: TFile, folder: string): string | null {
+    const relative = this.relativePathIn(file, folder);
+    if (relative === null) return null;
+    const parsed = toMoment(relative, this.settings().dateFormat, true);
+    return parsed.isValid() ? parsed.format("YYYY-MM-DD") : null;
+  }
+
+  private folderFor(file: TFile): string {
+    const daily = folderPath(this.settings().dailyFolder);
+    return this.relativePathIn(file, daily) !== null ? daily : folderPath(this.settings().archiveFolder);
   }
 
   private async linkPreviousToNext(previous: TFile | null, next: TFile): Promise<void> {
@@ -215,3 +248,5 @@ export class DailyNotesService {
     }
   }
 }
+
+const folderPath = (path: string): string => path.trim() ? normalizePath(path.trim()) : "";

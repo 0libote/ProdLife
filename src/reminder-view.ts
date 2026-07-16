@@ -5,17 +5,27 @@ import type { ReminderItem } from "./types";
 export const REMINDER_VIEW = "prodlife-reminders";
 
 export class ReminderListView extends ItemView {
+  private renderGeneration = 0;
+
   constructor(leaf: WorkspaceLeaf, private reminders: ReminderService) { super(leaf); }
 
   getViewType(): string { return REMINDER_VIEW; }
   getDisplayText(): string { return "ProdLife reminders"; }
   getIcon(): string { return "alarm-clock"; }
-  async onOpen(): Promise<void> { await this.render(); }
+  async onOpen(): Promise<void> {
+    const updateSize = (): void => this.contentEl.toggleClass("is-compact", this.contentEl.clientWidth <= 230);
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(this.contentEl);
+    this.register(() => observer.disconnect());
+    updateSize();
+    await this.render();
+  }
 
   async render(): Promise<void> {
-    this.contentEl.empty();
+    const generation = ++this.renderGeneration;
     this.contentEl.addClass("prodlife-reminder-sidebar");
-    const header = this.contentEl.createDiv({ cls: "prodlife-sidebar-header" });
+    const root = createDiv();
+    const header = root.createDiv({ cls: "prodlife-sidebar-header" });
     header.createEl("h4", { text: "Reminders" });
     const refresh = header.createEl("button", { cls: "clickable-icon", attr: { "aria-label": "Refresh reminders" } });
     setIcon(refresh, "refresh-cw");
@@ -23,17 +33,19 @@ export class ReminderListView extends ItemView {
 
     const items = (await this.reminders.scan()).filter((item) => !item.completed);
     if (!items.length) {
-      this.contentEl.createEl("p", { cls: "prodlife-empty", text: "No reminders" });
+      root.createEl("p", { cls: "prodlife-empty", text: "No reminders" });
+      this.commit(root, generation);
       return;
     }
     for (const group of groupReminders(items)) {
-      this.contentEl.createDiv({ cls: `prodlife-reminder-group-title${group.overdue ? " is-overdue" : ""}`, text: group.label });
-      for (const item of group.items) await this.renderItem(item);
+      root.createDiv({ cls: `prodlife-reminder-group-title${group.overdue ? " is-overdue" : ""}`, text: group.label });
+      for (const item of group.items) await this.renderItem(root, item);
     }
+    this.commit(root, generation);
   }
 
-  private async renderItem(item: ReminderItem): Promise<void> {
-    const row = this.contentEl.createEl("button", {
+  private async renderItem(root: HTMLElement, item: ReminderItem): Promise<void> {
+    const row = root.createEl("button", {
       cls: "prodlife-sidebar-reminder",
       attr: { "aria-label": `${item.text}, ${new Date(item.due).toLocaleString()}` }
     });
@@ -43,6 +55,12 @@ export class ReminderListView extends ItemView {
     const title = copy.createSpan({ cls: "prodlife-reminder-markdown" });
     await MarkdownRenderer.render(this.app, item.text, title, item.path, this);
     copy.createSpan({ cls: "prodlife-sidebar-file", text: item.path.split("/").pop()?.replace(/\.md$/, "") ?? item.path });
+  }
+
+  private commit(root: HTMLElement, generation: number): void {
+    if (generation !== this.renderGeneration) return;
+    this.contentEl.empty();
+    this.contentEl.append(...Array.from(root.childNodes));
   }
 }
 

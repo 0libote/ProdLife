@@ -5,7 +5,7 @@ const HEADING = /^(#{1,6})\s+\S/;
 const SCHEDULE = /^\s*{{\s*(?:schedule|obligate)\s+([\d,*-]+)\s+([\d,*-]+)\s+([\d,*-]+)\s*}}\s*$/i;
 
 export function parseLocalDate(value: string, defaultTime = "09:00"): number | null {
-  const clean = value.replace(/\[\[|\]\]/g, "").trim();
+  const clean = value.replace(/\[\[([^\]]+)\]\]/g, (_, link: string) => link.split("|").at(-1) ?? link).trim();
   const match = clean.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):?(\d{2})?)?$/);
   if (!match) return null;
   const fallback = defaultTime.match(/^(\d{1,2}):(\d{2})$/);
@@ -37,6 +37,7 @@ export function parseReminders(content: string, path: string, defaultTime = "09:
       .trim();
     reminders.push({
       id: `${path}:${index}:${raw}`,
+      key: `${path}:${raw}:${text}`,
       path,
       line: index,
       text,
@@ -162,15 +163,19 @@ export function renderTemplate(
   const pad = (value: number) => String(value).padStart(2, "0");
   const iso = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
   const time = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
-  const lines = template.split("\n");
-  const scheduled: string[] = [];
-  for (let index = 0; index < lines.length; index++) {
-    if (!SCHEDULE.test(lines[index] ?? "")) continue;
-    if (scheduleMatches(lines[index]!, date) && lines[index + 1] !== undefined) scheduled.push(lines[index + 1]!);
-    lines.splice(index, 2);
-    index--;
+  const source = template.split("\n");
+  const lines: string[] = [];
+  for (let index = 0; index < source.length; index++) {
+    const line = source[index] ?? "";
+    if (!SCHEDULE.test(line)) {
+      lines.push(line);
+      continue;
+    }
+    const scheduled = source[index + 1];
+    if (scheduled !== undefined && scheduleMatches(line, date)) lines.push(scheduled);
+    if (scheduled !== undefined) index++;
   }
-  return [...lines, ...scheduled]
+  return lines
     .join("\n")
     .replace(/{{\s*date(?::([^}]+))?\s*}}/gi, (_, pattern: string | undefined) => pattern ? format(pattern.trim()) : iso)
     .replace(/{{\s*time(?::([^}]+))?\s*}}/gi, (_, pattern: string | undefined) => pattern ? format(pattern.trim()) : time)
@@ -190,9 +195,10 @@ function basicDateFormat(date: Date, pattern: string): string {
   return pattern.replace(/YYYY|MM|DD|HH|mm/g, (token) => values[token] ?? token);
 }
 
-export function upsertReminder(line: string, date: string, time: string, linkDate = true): string {
-  const due = `(@${linkDate ? `[[${date}]]` : date}${time ? ` ${time}` : ""})`;
-  const existing = /\(@[^)]+\)/;
+export function upsertReminder(line: string, date: string, time: string, linkDate = true, linkTarget = date): string {
+  const link = linkTarget === date ? `[[${date}]]` : `[[${linkTarget}|${date}]]`;
+  const due = `(@${linkDate ? link : date}${time ? ` ${time}` : ""})`;
+  const existing = /\(@[^)]+\)|@\{[^}]+\}|[⏰📅📆🗓]\s*\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:?\d{0,2})?/u;
   return existing.test(line) ? line.replace(existing, due) : `${line.trimEnd()} ${due}`;
 }
 
@@ -224,6 +230,7 @@ export function activityFromContent(date: string, content: string): DayActivity 
 export function calculateStreak(activity: DayActivity[], today: Date): number {
   const byDate = new Map(activity.map((day) => [day.date, day.completed]));
   const cursor = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  if ((byDate.get(isoDate(cursor)) ?? 0) === 0) cursor.setDate(cursor.getDate() - 1);
   let streak = 0;
   for (;;) {
     const key = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(cursor.getDate()).padStart(2, "0")}`;
@@ -276,7 +283,7 @@ export function achievementsFor(
   return definitions.map(({ value, ...achievement }) => ({
     ...achievement,
     progress: Math.min(value, achievement.target),
-    unlocked: value >= achievement.target,
+    unlocked: value >= achievement.target || Boolean(unlocks[achievement.id]),
     ...(unlocks[achievement.id] ? { unlockedAt: unlocks[achievement.id] } : {})
   }));
 }
@@ -292,6 +299,7 @@ export function persistentWordTotal(total: number, previousSnapshot: number, cur
 
 export function streakForValues(values: Record<string, number>, today: Date): number {
   const cursor = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  if ((values[isoDate(cursor)] ?? 0) <= 0) cursor.setDate(cursor.getDate() - 1);
   let streak = 0;
   while ((values[isoDate(cursor)] ?? 0) > 0) {
     streak++;
