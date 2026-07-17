@@ -316,9 +316,7 @@ function renderWritingHeatmap(
   const scroller = parent.createDiv({ cls: "prodlife-heatmap-scroller" });
   const wrapper = scroller.createDiv({ cls: `prodlife-heatmap prodlife-heatmap--${mode}`, attr: { role: "grid", "aria-label": `${label} added for ${mode === "year" ? cursor.getFullYear() : cursor.toLocaleString(undefined, { month: "long", year: "numeric" })}` } });
   if (mode === "month") for (const day of ["M", "T", "W", "T", "F", "S", "S"]) wrapper.createSpan({ cls: "prodlife-calendar-weekday", text: day });
-  const start = mode === "year" ? new Date(cursor.getFullYear(), 0, 1) : new Date(cursor.getFullYear(), cursor.getMonth(), 1);
-  const end = mode === "year" ? new Date(cursor.getFullYear(), 11, 31) : new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0);
-  const offset = mode === "year" ? start.getDay() : (start.getDay() + 6) % 7;
+  const { start, end, offset } = heatmapBounds(mode, cursor);
   for (let blank = 0; blank < offset; blank++) wrapper.createSpan({ cls: "prodlife-heatmap-blank" });
   const buttons: HTMLButtonElement[] = [];
   for (const date = new Date(start); date <= end; date.setDate(date.getDate() + 1)) {
@@ -383,6 +381,15 @@ function bindHeatmapKeyboard(buttons: HTMLButtonElement[]): void {
     target.focus();
     target.click();
   }));
+}
+
+function heatmapBounds(mode: "year" | "month", cursor: Date): { start: Date; end: Date; offset: number } {
+  if (mode === "year") {
+    const start = new Date(cursor.getFullYear(), 0, 1);
+    return { start, end: new Date(cursor.getFullYear(), 11, 31), offset: start.getDay() };
+  }
+  const start = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
+  return { start, end: new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0), offset: (start.getDay() + 6) % 7 };
 }
 
 function petMessage(streak: number, completed: number): string {
