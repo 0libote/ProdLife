@@ -95,6 +95,26 @@ export function mergeWritingHistory(
   return merged;
 }
 
+export interface WritingBackfillEntry {
+  date: string;
+  content: string;
+  mtime: number;
+}
+
+export function summarizeWritingBackfill(entries: WritingBackfillEntry[]): Record<string, WritingDeviceDay> {
+  const days: Record<string, WritingDeviceDay> = {};
+  for (const entry of entries) {
+    if (!entry.content) continue;
+    const day = days[entry.date] ?? { ...emptyWritingMetrics(), updatedAt: 0 };
+    day.wordsAdded += countWords(entry.content);
+    day.charactersAdded += entry.content.length;
+    day.linesAdded += entry.content ? entry.content.split("\n").length : 0;
+    day.updatedAt = Math.max(day.updatedAt, entry.mtime);
+    days[entry.date] = day;
+  }
+  return days;
+}
+
 export class WritingTracker {
   private ready = false;
   private readonly snapshots = new Map<string, string>();
@@ -108,42 +128,25 @@ export class WritingTracker {
     private readonly data: () => ProdLifeData,
     private readonly persist: () => Promise<void>,
     private readonly dateForDailyFile: (file: TFile) => string | null,
-    private readonly changed: () => void,
+    private readonly changed: (date: string | null) => void,
     private readonly deviceId: string
   ) {}
 
   async initialize(): Promise<void> {
     const state = this.data();
     state.writingHistory = normalizeWritingHistory(state.writingHistory);
-    const backfillWords = !state.writingInitialized;
-    const backfillMetrics = !state.writingMetricsInitialized;
-    if (backfillWords || backfillMetrics) {
-      for (const file of this.files()) {
-        const content = await this.app.vault.cachedRead(file);
-        state.writingFiles[file.path] = countWords(content);
-        if (!content) continue;
-        const date = this.dateForDailyFile(file) ?? isoDate(new Date(file.stat.mtime));
-        const day = state.writingHistory[date] ?? { words: 0, updatedAt: 0, devices: {} };
-        day.devices ??= {};
-        const bucket = backfillWords ? "backfill" : "metrics-backfill";
-        const device = day.devices[bucket] ?? { ...emptyWritingMetrics(), updatedAt: 0 };
-        if (backfillWords) device.wordsAdded += countWords(content);
-        if (backfillMetrics) {
-          device.charactersAdded += content.length;
-          device.linesAdded += content.split("\n").length;
-        }
-        device.updatedAt = Math.max(device.updatedAt, file.stat.mtime);
-        day.devices[bucket] = device;
-        day.words = summarizeWritingDay(day).wordsAdded;
-        day.updatedAt = Math.max(day.updatedAt, file.stat.mtime);
-        state.writingHistory[date] = day;
-      }
-      state.writingInitialized = true;
-      state.writingMetricsInitialized = true;
-    }
+    await this.backfill(false);
     this.ready = true;
     await this.persist();
-    this.changed();
+    this.changed(null);
+  }
+
+  async rebuildBackfill(): Promise<{ files: number; failed: number }> {
+    const result = await this.backfill(true);
+    this.ready = true;
+    await this.persist();
+    this.changed(null);
+    return result;
   }
 
   observe(file: TFile, content: string): void {
@@ -186,7 +189,7 @@ export class WritingTracker {
     state.writingHistory[date] = day;
     state.writingFiles[file.path] = countWords(content);
     this.schedulePersist();
-    this.changed();
+    this.changed(date);
   }
 
   remove(path: string): void {
@@ -241,6 +244,73 @@ export class WritingTracker {
       this.persistTimer = null;
       void this.persist();
     }, 900);
+  }
+
+  private async backfill(force: boolean): Promise<{ files: number; failed: number }> {
+    const state = this.data();
+    const missingBaseline = !state.writingInitialized;
+    const missingMetrics = !state.writingMetricsInitialized;
+    if (!force && !missingBaseline && !missingMetrics) return { files: 0, failed: 0 };
+
+    const files = this.files();
+    const missingEntries: WritingBackfillEntry[] = [];
+    const metricEntries: WritingBackfillEntry[] = [];
+    let failed = 0;
+    const rebuildMetrics = missingMetrics && !missingBaseline;
+    const scan = rebuildMetrics ? files : files.filter((file) => state.writingFiles[file.path] === undefined);
+    for (let index = 0; index < scan.length; index += 16) {
+      await Promise.all(scan.slice(index, index + 16).map(async (file) => {
+        try {
+          const content = await this.app.vault.cachedRead(file);
+          const unseen = state.writingFiles[file.path] === undefined;
+          state.writingFiles[file.path] = countWords(content);
+          const entry = {
+            content,
+            date: this.dateForDailyFile(file) ?? isoDate(new Date(file.stat.mtime)),
+            mtime: file.stat.mtime
+          };
+          if (unseen) missingEntries.push(entry);
+          if (rebuildMetrics) metricEntries.push(entry);
+        } catch (error) {
+          failed++;
+          console.warn(`ProdLife could not backfill ${file.path}`, error);
+        }
+      }));
+    }
+
+    for (const [date, aggregate] of Object.entries(summarizeWritingBackfill(missingEntries))) {
+      const day = state.writingHistory[date] ?? { words: 0, updatedAt: 0, devices: {} };
+      day.devices ??= {};
+      const previous = day.devices.backfill ?? { ...emptyWritingMetrics(), updatedAt: 0 };
+      day.devices.backfill = {
+        ...previous,
+        wordsAdded: previous.wordsAdded + aggregate.wordsAdded,
+        charactersAdded: previous.charactersAdded + aggregate.charactersAdded,
+        linesAdded: previous.linesAdded + aggregate.linesAdded,
+        updatedAt: Math.max(previous.updatedAt, aggregate.updatedAt)
+      };
+      day.words = summarizeWritingDay(day).wordsAdded;
+      day.updatedAt = Math.max(day.updatedAt, aggregate.updatedAt);
+      state.writingHistory[date] = day;
+    }
+    for (const [date, aggregate] of Object.entries(summarizeWritingBackfill(metricEntries))) {
+      const day = state.writingHistory[date] ?? { words: 0, updatedAt: 0, devices: {} };
+      day.devices ??= {};
+      const previous = day.devices.backfill ?? { ...emptyWritingMetrics(), updatedAt: 0 };
+      day.devices.backfill = {
+        ...previous,
+        charactersAdded: aggregate.charactersAdded,
+        linesAdded: aggregate.linesAdded,
+        updatedAt: Math.max(previous.updatedAt, aggregate.updatedAt)
+      };
+      delete day.devices["metrics-backfill"];
+      day.words = summarizeWritingDay(day).wordsAdded;
+      day.updatedAt = Math.max(day.updatedAt, aggregate.updatedAt);
+      state.writingHistory[date] = day;
+    }
+    if (missingBaseline) state.writingInitialized = failed === 0;
+    if (missingMetrics) state.writingMetricsInitialized = failed === 0;
+    return { files: missingEntries.length, failed };
   }
 
   private removePending(path: string): void {

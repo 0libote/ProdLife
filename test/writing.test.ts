@@ -3,6 +3,7 @@ import { mock, test } from "bun:test";
 
 class MockTFile {
   extension = "md";
+  stat = { mtime: 1 };
   constructor(public path = "") {}
 }
 
@@ -69,6 +70,51 @@ test("merges cross-device writing counters without double counting", async () =>
     linesAdded: 3,
     linesRemoved: 0
   });
+});
+
+test("builds an idempotent writing backfill by day", async () => {
+  const { summarizeWritingBackfill } = await import("../src/writing");
+  const result = summarizeWritingBackfill([
+    { date: "2026-07-16", content: "one two\nthree", mtime: 10 },
+    { date: "2026-07-16", content: "four", mtime: 20 },
+    { date: "2026-07-17", content: "", mtime: 30 }
+  ]);
+  assert.deepEqual(result["2026-07-16"], {
+    wordsAdded: 4,
+    wordsRemoved: 0,
+    charactersAdded: 17,
+    charactersRemoved: 0,
+    linesAdded: 3,
+    linesRemoved: 0,
+    updatedAt: 20
+  });
+  assert.equal(result["2026-07-17"], undefined);
+});
+
+test("does not count an already backfilled file twice", async () => {
+  const { WritingTracker } = await import("../src/writing");
+  const { DEFAULT_SETTINGS } = await import("../src/types");
+  const file = new MockTFile("Daily/2026-07-16.md");
+  const data = {
+    writingHistory: {},
+    writingFiles: {},
+    writingInitialized: false,
+    writingMetricsInitialized: false
+  };
+  const tracker = new WritingTracker(
+    { vault: { getMarkdownFiles: () => [file], cachedRead: async () => "one two" } } as never,
+    () => DEFAULT_SETTINGS,
+    () => data as never,
+    async () => {},
+    () => "2026-07-16",
+    () => {},
+    "test-device"
+  );
+
+  await tracker.initialize();
+  assert.equal(tracker.values()["2026-07-16"], 2);
+  assert.deepEqual(await tracker.rebuildBackfill(), { files: 0, failed: 0 });
+  assert.equal(tracker.values()["2026-07-16"], 2);
 });
 
 test("rescans only the reminder file that changed", async () => {
