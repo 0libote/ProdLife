@@ -5,37 +5,24 @@ import type { ProdLifeData, ProdLifeSettings, ReminderItem } from "./types";
 export class ReminderService {
   private showing = false;
   private fullScan = true;
-  private dirtyPaths = new Set<string>();
-  private byPath = new Map<string, ReminderItem[]>();
+  private readonly dirtyPaths = new Set<string>();
+  private readonly byPath = new Map<string, ReminderItem[]>();
   private cached: ReminderItem[] = [];
   private readyAt = 0;
 
   constructor(
-    private app: App,
-    private settings: () => ProdLifeSettings,
-    private data: () => ProdLifeData,
-    private persist: () => Promise<void>,
-    private component: Component,
-    private dailyLinkFor: (date: string) => string
+    private readonly app: App,
+    private readonly settings: () => ProdLifeSettings,
+    private readonly data: () => ProdLifeData,
+    private readonly persist: () => Promise<void>,
+    private readonly component: Component,
+    private readonly dailyLinkFor: (date: string) => string
   ) {}
 
   async scan(): Promise<ReminderItem[]> {
     if (!this.fullScan && !this.dirtyPaths.size) return this.cached;
-    if (this.fullScan) {
-      const files = this.reminderFiles();
-      const paths = new Set(files.map((file) => file.path));
-      for (const path of this.byPath.keys()) if (!paths.has(path)) this.byPath.delete(path);
-      for (const file of files) await this.scanFile(file);
-      this.fullScan = false;
-      this.dirtyPaths.clear();
-    } else if (this.dirtyPaths.size) {
-      for (const path of this.dirtyPaths) {
-        const file = this.app.vault.getAbstractFileByPath(path);
-        if (file instanceof TFile && this.includes(file)) await this.scanFile(file);
-        else this.byPath.delete(path);
-      }
-      this.dirtyPaths.clear();
-    }
+    if (this.fullScan) await this.scanAll();
+    else await this.scanDirty();
     this.cached = [...this.byPath.values()].flat().sort((a, b) => a.due - b.due);
     return this.cached;
   }
@@ -128,6 +115,25 @@ export class ReminderService {
     })));
   }
 
+  private async scanAll(): Promise<void> {
+    const files = this.reminderFiles();
+    const paths = new Set(files.map((file) => file.path));
+    this.fullScan = false;
+    this.dirtyPaths.clear();
+    for (const path of this.byPath.keys()) if (!paths.has(path)) this.byPath.delete(path);
+    for (const file of files) await this.scanFile(file);
+  }
+
+  private async scanDirty(): Promise<void> {
+    const paths = [...this.dirtyPaths];
+    this.dirtyPaths.clear();
+    for (const path of paths) {
+      const file = this.app.vault.getAbstractFileByPath(path);
+      if (file instanceof TFile && this.includes(file)) await this.scanFile(file);
+      else this.byPath.delete(path);
+    }
+  }
+
   private includes(file: TFile): boolean {
     const folders = this.settings().reminderFolders.map((path) => normalizePath(path.trim())).filter(Boolean);
     return !folders.length || folders.some((path) => file.path === path || file.path.startsWith(`${path}/`));
@@ -199,11 +205,11 @@ class ReminderEditorModal extends Modal {
 
   constructor(
     app: App,
-    private editor: Editor,
-    private defaultTime: string,
-    private linkDate: boolean,
-    private dailyLinkFor: (date: string) => string,
-    private changed: () => void
+    private readonly editor: Editor,
+    private readonly defaultTime: string,
+    private readonly linkDate: boolean,
+    private readonly dailyLinkFor: (date: string) => string,
+    private readonly changed: () => void
   ) { super(app); }
 
   onOpen(): void {

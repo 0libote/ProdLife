@@ -20,18 +20,18 @@ export class DashboardView extends ItemView {
   private heatmapCursor = new Date();
   private selectedHeatmapDate = isoDate(new Date());
   private renderGeneration = 0;
-  private activityCache = new Map<string, { mtime: number; activity: DayActivity }>();
+  private readonly activityCache = new Map<string, { mtime: number; activity: DayActivity }>();
 
   constructor(
     leaf: WorkspaceLeaf,
-    private daily: DailyNotesService,
-    private reminders: ReminderService,
-    private writing: WritingTracker,
-    private settings: () => ProdLifeSettings,
-    private data: () => ProdLifeData,
-    private saveSettings: () => Promise<void>,
-    private recordAchievements: (achievements: Achievement[]) => Promise<void>,
-    private askPet: () => void
+    private readonly daily: DailyNotesService,
+    private readonly reminders: ReminderService,
+    private readonly writing: WritingTracker,
+    private readonly settings: () => ProdLifeSettings,
+    private readonly data: () => ProdLifeData,
+    private readonly saveSettings: () => Promise<void>,
+    private readonly recordAchievements: (achievements: Achievement[]) => Promise<void>,
+    private readonly askPet: () => void
   ) {
     super(leaf);
     this.heatmapMode = settings().heatmapMode;
@@ -148,7 +148,12 @@ export class DashboardView extends ItemView {
       detail.empty();
       writingDetail(detail, date, this.writing.day(date));
     };
-    renderWritingHeatmap(section, writing, goal, label, this.heatmapMode, this.heatmapCursor, this.selectedHeatmapDate, renderDetail);
+    renderWritingHeatmap(section, writing, goal, label, {
+      mode: this.heatmapMode,
+      cursor: this.heatmapCursor,
+      selected: this.selectedHeatmapDate,
+      select: renderDetail
+    });
     renderDetail(this.selectedHeatmapDate);
   }
 
@@ -305,11 +310,9 @@ function renderWritingHeatmap(
   values: Record<string, number>,
   goal: number,
   label: string,
-  mode: "year" | "month",
-  cursor: Date,
-  selected: string,
-  select: (date: string) => void
+  range: { mode: "year" | "month"; cursor: Date; selected: string; select: (date: string) => void }
 ): void {
+  const { mode, cursor, selected, select } = range;
   const scroller = parent.createDiv({ cls: "prodlife-heatmap-scroller" });
   const wrapper = scroller.createDiv({ cls: `prodlife-heatmap prodlife-heatmap--${mode}`, attr: { role: "grid", "aria-label": `${label} added for ${mode === "year" ? cursor.getFullYear() : cursor.toLocaleString(undefined, { month: "long", year: "numeric" })}` } });
   if (mode === "month") for (const day of ["M", "T", "W", "T", "F", "S", "S"]) wrapper.createSpan({ cls: "prodlife-calendar-weekday", text: day });
@@ -337,7 +340,7 @@ function renderWritingHeatmap(
     buttons.push(button);
   }
   buttons.forEach((button, index) => button.addEventListener("keydown", (event) => {
-    const offset = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : event.key === "ArrowDown" ? 7 : event.key === "ArrowUp" ? -7 : 0;
+    const offset = arrowOffset(event.key);
     if (!offset) return;
     event.preventDefault();
     const target = buttons[index + offset];
@@ -362,7 +365,19 @@ function writingDetail(parent: HTMLElement, date: string, metrics: WritingMetric
 }
 
 const metricLabel = (metric: WritingMetric): string => metric === "characters" ? "characters" : metric;
-const metricGoal = (metric: WritingMetric, wordGoal: number): number => metric === "characters" ? wordGoal * 6 : metric === "lines" ? Math.max(1, Math.ceil(wordGoal / 12)) : wordGoal;
+function metricGoal(metric: WritingMetric, wordGoal: number): number {
+  if (metric === "characters") return wordGoal * 6;
+  if (metric === "lines") return Math.max(1, Math.ceil(wordGoal / 12));
+  return wordGoal;
+}
+
+function arrowOffset(key: string): number {
+  if (key === "ArrowRight") return 1;
+  if (key === "ArrowLeft") return -1;
+  if (key === "ArrowDown") return 7;
+  if (key === "ArrowUp") return -7;
+  return 0;
+}
 
 function petMessage(streak: number, completed: number): string {
   if (completed >= 5) return "You are flying today. Remember to take a proper break.";

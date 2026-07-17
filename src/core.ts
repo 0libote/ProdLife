@@ -3,9 +3,30 @@ import type { Achievement, DayActivity, ReminderItem } from "./types";
 const TASK = /^(\s*)[-*+]\s+\[([^\]])\]\s+(.*)$/;
 const HEADING = /^(#{1,6})\s+\S/;
 const SCHEDULE = /^\s*{{\s*(?:schedule|obligate)\s+([\d,*-]+)\s+([\d,*-]+)\s+([\d,*-]+)\s*}}\s*$/i;
+const PAREN_REMINDER = /\(@[^)]+\)/u;
+const BRACE_REMINDER = /@\{[^}]+\}/u;
+const EMOJI_REMINDER = /[⏰📅📆🗓]\s*\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:?\d{0,2})?/u;
+
+const reminderSyntax = (value: string): RegExp | null => [PAREN_REMINDER, BRACE_REMINDER, EMOJI_REMINDER].find((pattern) => pattern.test(value)) ?? null;
+
+function unwrapWikiLinks(value: string): string {
+  const parts: string[] = [];
+  let cursor = 0;
+  while (cursor < value.length) {
+    const start = value.indexOf("[[", cursor);
+    if (start === -1) break;
+    const end = value.indexOf("]]", start + 2);
+    if (end === -1) break;
+    const link = value.slice(start + 2, end);
+    parts.push(value.slice(cursor, start), link.split("|").at(-1) ?? link);
+    cursor = end + 2;
+  }
+  parts.push(value.slice(cursor));
+  return parts.join("");
+}
 
 export function parseLocalDate(value: string, defaultTime = "09:00"): number | null {
-  const clean = value.replace(/\[\[([^\]]+)\]\]/g, (_, link: string) => link.split("|").at(-1) ?? link).trim();
+  const clean = unwrapWikiLinks(value).trim();
   const match = clean.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):?(\d{2})?)?$/);
   if (!match) return null;
   const fallback = defaultTime.match(/^(\d{1,2}):(\d{2})$/);
@@ -32,9 +53,8 @@ export function parseReminders(content: string, path: string, defaultTime = "09:
     if (!raw) return;
     const due = parseLocalDate(raw, defaultTime);
     if (due === null) return;
-    const text = body
-      .replace(/\(@[^)]+\)|@\{[^}]+\}|[⏰📅📆🗓]\s*\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:?\d{0,2})?/u, "")
-      .trim();
+    const marker = reminderSyntax(body);
+    const text = (marker ? body.replace(marker, "") : body).trim();
     reminders.push({
       id: `${path}:${index}:${raw}`,
       key: `${path}:${raw}:${text}`,
@@ -197,9 +217,10 @@ function basicDateFormat(date: Date, pattern: string): string {
 
 export function upsertReminder(line: string, date: string, time: string, linkDate = true, linkTarget = date): string {
   const link = linkTarget === date ? `[[${date}]]` : `[[${linkTarget}|${date}]]`;
-  const due = `(@${linkDate ? link : date}${time ? ` ${time}` : ""})`;
-  const existing = /\(@[^)]+\)|@\{[^}]+\}|[⏰📅📆🗓]\s*\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:?\d{0,2})?/u;
-  return existing.test(line) ? line.replace(existing, due) : `${line.trimEnd()} ${due}`;
+  const suffix = time ? ` ${time}` : "";
+  const due = `(@${linkDate ? link : date}${suffix})`;
+  const existing = reminderSyntax(line);
+  return existing ? line.replace(existing, due) : `${line.trimEnd()} ${due}`;
 }
 
 export function ensureDailyFrontmatter(content: string, date: string): string {

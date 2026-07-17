@@ -90,7 +90,9 @@ export default class ProdLifePlugin extends Plugin {
       menu.addItem((item) => item.setTitle("Set ProdLife reminder").setIcon("alarm-clock-plus").onClick(() => this.reminders.editCurrentLine(editor)));
     }));
     this.registerEvent(this.app.workspace.on("file-open", (file) => {
-      if (file) void this.app.vault.cachedRead(file).then((content) => this.writing.observe(file, content));
+      if (file) this.app.vault.cachedRead(file)
+        .then((content) => this.writing.observe(file, content))
+        .catch((error: unknown) => console.error(`ProdLife could not read ${file.path}`, error));
     }));
     this.registerEvent(this.app.workspace.on("editor-change", (editor, info) => {
       if (info.file) this.writing.schedule(info.file, editor.getValue());
@@ -372,10 +374,11 @@ function parseSnooze(value: string): number | null {
 }
 
 function normalizeSettings(stored?: Partial<ProdLifeSettings>): ProdLifeSettings {
+  const source = stored ?? DEFAULT_SETTINGS;
   return {
     ...DEFAULT_SETTINGS,
-    ...(stored ?? {}),
-    weekdayTemplates: { ...DEFAULT_SETTINGS.weekdayTemplates, ...(stored?.weekdayTemplates ?? {}) },
+    ...source,
+    weekdayTemplates: { ...source.weekdayTemplates },
     reminderFolders: stored?.reminderFolders?.filter((path): path is string => typeof path === "string") ?? DEFAULT_SETTINGS.reminderFolders,
     snoozeMinutes: stored?.snoozeMinutes?.filter((minutes): minutes is number => typeof minutes === "number" && minutes > 0) ?? DEFAULT_SETTINGS.snoozeMinutes,
     dashboardSections: stored?.dashboardSections?.filter((section): section is ProdLifeSettings["dashboardSections"][number] => ["hero", "metrics", "heatmap", "achievements", "reminders"].includes(section)) ?? DEFAULT_SETTINGS.dashboardSections,
@@ -398,7 +401,7 @@ function mergeEarliest(local: Record<string, number>, incoming: Record<string, n
 }
 
 class ProdLifeWelcomeModal extends Modal {
-  constructor(app: ProdLifePlugin["app"], private plugin: ProdLifePlugin) { super(app); }
+  constructor(app: ProdLifePlugin["app"], private readonly plugin: ProdLifePlugin) { super(app); }
 
   onOpen(): void {
     this.modalEl.addClass("prodlife-welcome-modal");

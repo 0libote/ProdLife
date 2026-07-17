@@ -97,19 +97,19 @@ export function mergeWritingHistory(
 
 export class WritingTracker {
   private ready = false;
-  private snapshots = new Map<string, string>();
-  private captureTimers = new Map<string, number>();
-  private pendingCaptures = new Map<string, { file: TFile; content: string }>();
+  private readonly snapshots = new Map<string, string>();
+  private readonly captureTimers = new Map<string, number>();
+  private readonly pendingCaptures = new Map<string, { file: TFile; content: string }>();
   private persistTimer: number | null = null;
 
   constructor(
-    private app: App,
-    private settings: () => ProdLifeSettings,
-    private data: () => ProdLifeData,
-    private persist: () => Promise<void>,
-    private dateForDailyFile: (file: TFile) => string | null,
-    private changed: () => void,
-    private deviceId: string
+    private readonly app: App,
+    private readonly settings: () => ProdLifeSettings,
+    private readonly data: () => ProdLifeData,
+    private readonly persist: () => Promise<void>,
+    private readonly dateForDailyFile: (file: TFile) => string | null,
+    private readonly changed: () => void,
+    private readonly deviceId: string
   ) {}
 
   async initialize(): Promise<void> {
@@ -225,7 +225,7 @@ export class WritingTracker {
   }
 
   async flush(): Promise<void> {
-    for (const path of [...this.pendingCaptures.keys()]) {
+    for (const path of this.pendingCaptures.keys()) {
       const pending = this.pendingCaptures.get(path);
       this.removePending(path);
       if (pending) this.capture(pending.file, pending.content);

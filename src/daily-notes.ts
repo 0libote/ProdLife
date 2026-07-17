@@ -114,28 +114,34 @@ export class DailyNotesService {
     for (const file of files) {
       const relative = `${this.relativePathIn(file, dailyFolder) ?? file.basename}.md`;
       const destination = normalizePath(`${archiveFolder}/${relative}`);
-      if (this.app.vault.getAbstractFileByPath(destination)) {
-        conflicts++;
-        continue;
-      }
-      try {
-        await this.ensureFolder(destination.substring(0, destination.lastIndexOf("/")));
-        await this.app.fileManager.renameFile(file, destination);
-        moved++;
-      } catch (error) {
-        failed++;
-        console.error(`ProdLife could not archive ${file.path}`, error);
-      }
+      const result = await this.archiveFile(file, destination);
+      if (result === "moved") moved++;
+      else if (result === "conflict") conflicts++;
+      else failed++;
     }
     if (notify) {
+      let archived = "archived none";
+      if (moved > 0) archived = `archived ${moved} daily note${moved === 1 ? "" : "s"}`;
       const details = [
-        moved ? `archived ${moved} daily note${moved === 1 ? "" : "s"}` : "archived none",
+        archived,
         conflicts ? `${conflicts} already existed` : "",
         failed ? `${failed} failed` : ""
       ].filter(Boolean).join(" · ");
       new Notice(files.length ? `ProdLife ${details}.` : "No daily notes needed archiving.");
     }
     return moved;
+  }
+
+  private async archiveFile(file: TFile, destination: string): Promise<"moved" | "conflict" | "failed"> {
+    if (this.app.vault.getAbstractFileByPath(destination)) return "conflict";
+    try {
+      await this.ensureFolder(destination.substring(0, destination.lastIndexOf("/")));
+      await this.app.fileManager.renameFile(file, destination);
+      return "moved";
+    } catch (error) {
+      console.error(`ProdLife could not archive ${file.path}`, error);
+      return "failed";
+    }
   }
 
   async autoArchive(): Promise<number> {
