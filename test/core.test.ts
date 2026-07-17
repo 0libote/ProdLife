@@ -30,6 +30,7 @@ test("parses supported reminder formats and ignores completed tasks", () => {
   assert.equal(reminders[3]?.completed, true);
   assert.equal(reminders[0]?.allDay, false);
   assert.equal(reminders[1]?.allDay, true);
+  assert.equal(reminders[0]?.key, parseReminders(`Intro\n${content}`, "Daily/2026-07-10.md")[0]?.key);
 });
 
 test("preserves the vault's bold reminder titles and wikilinks", () => {
@@ -46,6 +47,7 @@ test("rejects impossible local dates", () => {
   assert.equal(parseLocalDate("2026-02-30"), null);
   assert.equal(parseLocalDate("2026-07-10 25:00"), null);
   assert.notEqual(parseLocalDate("2026-07-10"), null);
+  assert.notEqual(parseLocalDate("[[Daily/10-07-2026|2026-07-10]] 09:00"), null);
 });
 
 test("rolls open tasks forward with their hierarchy", () => {
@@ -59,8 +61,8 @@ test("rolls open tasks forward with their hierarchy", () => {
 
 test("renders weekday schedules and template variables", () => {
   const monday = new Date(2026, 6, 6, 8, 5);
-  const output = renderTemplate("# {{title}}\n{{schedule * * 1-5}}\n- [ ] Weekday review", monday, "2026-07-06", "Daily/prev");
-  assert.equal(output, "# 2026-07-06\n- [ ] Weekday review");
+  const output = renderTemplate("# {{title}}\n{{schedule * * 1-5}}\n- [ ] Weekday review\n## Notes", monday, "2026-07-06", "Daily/prev");
+  assert.equal(output, "# 2026-07-06\n- [ ] Weekday review\n## Notes");
   assert.equal(scheduleMatches("{{obligate * * 0}}", monday), false);
 });
 
@@ -73,6 +75,9 @@ test("renders formatted Daily Notes variables", () => {
 test("adds and updates linked reminders", () => {
   assert.equal(upsertReminder("- [ ] Call Sam", "2026-07-12", "09:30"), "- [ ] Call Sam (@[[2026-07-12]] 09:30)");
   assert.equal(upsertReminder("- [ ] Call Sam (@2026-07-11)", "2026-07-12", ""), "- [ ] Call Sam (@[[2026-07-12]])");
+  assert.equal(upsertReminder("- [ ] Call Sam @{2026-07-11}", "2026-07-12", "09:30"), "- [ ] Call Sam (@[[2026-07-12]] 09:30)");
+  assert.equal(upsertReminder("- [ ] Call Sam ⏰ 2026-07-11 08:00", "2026-07-12", "09:30"), "- [ ] Call Sam (@[[2026-07-12]] 09:30)");
+  assert.equal(upsertReminder("- [ ] Call Sam", "2026-07-12", "09:30", true, "Daily/12-07-2026"), "- [ ] Call Sam (@[[Daily/12-07-2026|2026-07-12]] 09:30)");
 });
 
 test("merges ProdLife fields into existing template frontmatter", () => {
@@ -85,6 +90,7 @@ test("calculates activity and a consecutive streak", () => {
   const second = activityFromContent("2026-07-10", "- [x] C");
   assert.deepEqual(first, { date: "2026-07-09", completed: 1, total: 2 });
   assert.equal(calculateStreak([first, second], new Date(2026, 6, 10)), 2);
+  assert.equal(calculateStreak([first], new Date(2026, 6, 10)), 1);
 });
 
 test("does not roll an untouched task placeholder", () => {
@@ -102,6 +108,7 @@ test("builds a broad achievement catalog with progress and unlock dates", () => 
   const achievements = achievementsFor(activity, 3, { "2026-07-11": 600 }, { "tasks-1": 1234 });
   assert.ok(achievements.length >= 40);
   assert.equal(achievements.find((item) => item.id === "tasks-1")?.unlockedAt, 1234);
+  assert.equal(achievements.find((item) => item.id === "tasks-1")?.unlocked, true);
   assert.equal(achievements.find((item) => item.id === "words-500")?.unlocked, true);
 });
 

@@ -14,9 +14,9 @@ Everything stays local in your vault. ProdLife has no account, analytics, networ
 - **Reminder sidebar:** review reminders in a compact date-grouped right panel with rendered Markdown, linked notes, all-day labels, and source files.
 - **Reminder editor:** use the command palette or editor context menu to choose a date from a calendar, set a time, or mark the task all day.
 - **A configurable dashboard:** show, hide, and reorder daily focus, metrics, writing heatmap, achievements, and reminders.
-- **Persistent writing history:** log positive word-count changes permanently, including a first-run backlog. Later edits or deleted notes never erase earned activity.
+- **Permanent writing history:** track words, characters, and lines added and removed—including pasted text and a first-run backlog. Deleting a source note never deletes its history.
 - **A real achievement collection:** work through 48 task, writing, streak, and consistency milestones with progress, completion dates, and unlock popups.
-- **A productivity pet:** Pip appears beside the dashboard and in a lightweight speech popup with configurable check-ins.
+- **A productivity pet:** Pip is an interactive dashboard companion with configurable, focus-aware check-ins and a “quiet today” control.
 - **Automatic archiving:** archive manually, the next day, or after a chosen number of days without breaking task rollover.
 - **Desktop and mobile:** uses only Obsidian APIs and browser APIs.
 
@@ -47,6 +47,8 @@ Reload Obsidian and enable ProdLife under Community plugins. BRAT users can add 
 3. Run **ProdLife: Open dashboard** to see progress and upcoming reminders.
 4. Use the sprout, alarm-clock, and calendar-check ribbon icons for quick access.
 
+The first-run setup guide can apply a safe recommended workflow or preserve imported settings. Reopen it any time with **ProdLife: Open setup guide**.
+
 If you already use Daily Notes and Reminder, run **ProdLife: Import Daily Notes and Reminder settings** before changing either plugin. ProdLife imports their compatible settings without modifying any notes.
 
 ## Reminder syntax
@@ -60,7 +62,7 @@ ProdLife understands four common formats on Markdown tasks:
 - [ ] Pay the invoice 📅 2026-07-15
 ```
 
-A date without a time uses the **Default reminder time** setting. `📆` and `🗓` work like `📅`. Checked tasks do not notify. Obsidian cannot provide system notifications on every mobile platform, so ProdLife shows reminders inside the app.
+A date without a time uses the **Default reminder time** setting. `📆` and `🗓` work like `📅`. Checked tasks do not notify. Completing from ProdLife also writes a small synced completion record, so a stale copy or moved line on another device cannot repeatedly alert. Obsidian cannot provide system notifications on every mobile platform, so ProdLife shows reminders inside the app.
 
 Use **Set reminder on current line** to open ProdLife's calendar. Choose a day, optionally set a time, or enable **All day**. Reminder checks wait for the configurable startup delay so Obsidian Sync and third-party sync tools can settle first.
 
@@ -106,14 +108,17 @@ The three fields are **day of month**, **month**, and **day of week** (`0` is Su
 - **Import Daily Notes and Reminder settings**
 - **Archive old daily notes**
 - **Ask your productivity pet**
+- **Open setup guide**
 
 Archiving never overwrites an existing file. Files with a destination conflict remain in the daily folder.
 
 ## Writing heatmap and achievements
 
-ProdLife records words added to Markdown files rather than recalculating the current size of a note. Reducing a note or deleting it does not subtract historical words. On first run, existing notes are backfilled using daily-note dates when available and file modification dates otherwise.
+ProdLife records editor changes as they happen, including typing and paste. It keeps added and removed totals for words, characters, and lines; reducing or deleting a note does not erase historical activity. On first run, existing notes are approximately backfilled using daily-note dates when available and file modification dates otherwise.
 
-The heatmap supports month and year views with previous/next navigation and scales to its container without a horizontal scrollbar. Set a daily word goal to control intensity. Restrict tracking with **Writing folders**, or leave it blank for the whole vault.
+The heatmap supports month and year views, metric switching, keyboard navigation, and a selected-day breakdown of added, removed, and net activity. On narrow screens the readable year grid scrolls horizontally instead of shrinking into tiny targets. Set a daily word goal to control intensity. Restrict tracking with **Writing folders**, or leave it blank for the whole vault.
+
+For cross-device safety, each device writes monotonic counters under a device-local identifier. Obsidian Sync carries the plugin data file, and ProdLife merges the largest counter from each device instead of blindly adding conflicting copies. History remains compact and idempotent.
 
 Select the dashboard layout button beside the ProdLife wordmark to show, hide, reset, or reorder sections. Select the achievement counter to open the full collection with category, progress, target, and unlock date.
 
@@ -135,7 +140,7 @@ ProdLife supports `{{obligate ...}}`, structured task rollover, previous-note li
 
 ## Privacy and safety
 
-ProdLife enumerates Markdown files because vault-wide Reminder compatibility and optional whole-vault writing history require finding activity outside the daily folder. You can restrict these separately under **Reminder folders** and **Writing folders**; for example, `Daily, FTL`. Persistent history stores dates and aggregate word totals plus current per-file baselines in ProdLife's local plugin data. ProdLife writes notes only when creating a daily note, adding or completing a reminder, linking adjacent daily notes, or archiving. There is no telemetry or external communication.
+ProdLife enumerates Markdown files because vault-wide Reminder compatibility and optional whole-vault writing history require finding activity outside the daily folder. You can restrict these separately under **Reminder folders** and **Writing folders**; for example, `Daily, FTL`. Persistent history stores dates, aggregate writing counters, device identifiers, and current per-file word baselines in ProdLife's plugin data. ProdLife writes notes only when creating a daily note, adding or completing a reminder, linking adjacent daily notes, or archiving. There is no telemetry or external communication.
 
 Before adopting any new workflow plugin, back up or version-control your vault. ProdLife uses Obsidian's vault and file-manager APIs so changes participate in normal Obsidian file handling.
 
@@ -144,7 +149,7 @@ Before adopting any new workflow plugin, back up or version-control your vault. 
 Requires Bun 1.3.14 or newer.
 
 ```bash
-bun ci
+bun install --frozen-lockfile
 bun run check
 ```
 

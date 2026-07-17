@@ -17,6 +17,7 @@ export interface ProdLifeSettings {
   startupDelaySeconds: number;
   dashboardSections: DashboardSectionId[];
   heatmapMode: "year" | "month";
+  heatmapMetric: WritingMetric;
   writingGoal: number;
   writingFolders: string[];
   petEnabled: boolean;
@@ -44,6 +45,7 @@ export const DEFAULT_SETTINGS: ProdLifeSettings = {
   startupDelaySeconds: 30,
   dashboardSections: ["hero", "metrics", "heatmap", "achievements", "reminders"],
   heatmapMode: "year",
+  heatmapMetric: "words",
   writingGoal: 500,
   writingFolders: [],
   petEnabled: true,
@@ -59,6 +61,7 @@ export const DEFAULT_SETTINGS: ProdLifeSettings = {
 
 export interface ReminderItem {
   id: string;
+  key: string;
   path: string;
   line: number;
   text: string;
@@ -91,15 +94,35 @@ export type DashboardSectionId = "hero" | "metrics" | "heatmap" | "achievements"
 export interface WritingDay {
   words: number;
   updatedAt: number;
+  devices?: Record<string, WritingDeviceDay>;
+}
+
+export type WritingMetric = "words" | "characters" | "lines";
+
+export interface WritingMetrics {
+  wordsAdded: number;
+  wordsRemoved: number;
+  charactersAdded: number;
+  charactersRemoved: number;
+  linesAdded: number;
+  linesRemoved: number;
+}
+
+export interface WritingDeviceDay extends WritingMetrics {
+  updatedAt: number;
 }
 
 export interface ProdLifeData {
+  schemaVersion: number;
   settings: ProdLifeSettings;
   snoozedUntil: Record<string, number>;
   notified: Record<string, number>;
+  completedReminders: Record<string, number>;
   writingHistory: Record<string, WritingDay>;
   writingFiles: Record<string, number>;
   writingInitialized: boolean;
+  writingMetricsInitialized: boolean;
   achievementUnlocks: Record<string, number>;
   achievementsInitialized: boolean;
+  setupComplete: boolean;
 }
