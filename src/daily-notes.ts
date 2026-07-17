@@ -108,17 +108,7 @@ export class DailyNotesService {
       const date = this.dateFor(file);
       return date !== null && shouldArchiveDaily(date, today, ageDays);
     });
-    let moved = 0;
-    let conflicts = 0;
-    let failed = 0;
-    for (const file of files) {
-      const relative = `${this.relativePathIn(file, dailyFolder) ?? file.basename}.md`;
-      const destination = normalizePath(`${archiveFolder}/${relative}`);
-      const result = await this.archiveFile(file, destination);
-      if (result === "moved") moved++;
-      else if (result === "conflict") conflicts++;
-      else failed++;
-    }
+    const { moved, conflicts, failed } = await this.archiveFiles(files, dailyFolder, archiveFolder);
     if (notify) {
       let archived = "archived none";
       if (moved > 0) archived = `archived ${moved} daily note${moved === 1 ? "" : "s"}`;
@@ -130,6 +120,20 @@ export class DailyNotesService {
       new Notice(files.length ? `ProdLife ${details}.` : "No daily notes needed archiving.");
     }
     return moved;
+  }
+
+  private async archiveFiles(files: TFile[], dailyFolder: string, archiveFolder: string): Promise<{ moved: number; conflicts: number; failed: number }> {
+    let moved = 0;
+    let conflicts = 0;
+    let failed = 0;
+    for (const file of files) {
+      const relative = `${this.relativePathIn(file, dailyFolder) ?? file.basename}.md`;
+      const result = await this.archiveFile(file, normalizePath(`${archiveFolder}/${relative}`));
+      if (result === "moved") moved++;
+      else if (result === "conflict") conflicts++;
+      else failed++;
+    }
+    return { moved, conflicts, failed };
   }
 
   private async archiveFile(file: TFile, destination: string): Promise<"moved" | "conflict" | "failed"> {

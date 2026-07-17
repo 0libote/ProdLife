@@ -339,13 +339,7 @@ function renderWritingHeatmap(
     });
     buttons.push(button);
   }
-  buttons.forEach((button, index) => button.addEventListener("keydown", (event) => {
-    const offset = arrowOffset(event.key);
-    if (!offset) return;
-    event.preventDefault();
-    const target = buttons[index + offset];
-    if (target && !target.disabled) { target.focus(); target.click(); }
-  }));
+  bindHeatmapKeyboard(buttons);
   const legend = parent.createDiv({ cls: "prodlife-heatmap-legend" });
   legend.createSpan({ text: "None" });
   for (let level = 0; level <= 4; level++) legend.createDiv({ cls: `prodlife-heatmap-day level-${level}` });
@@ -377,6 +371,18 @@ function arrowOffset(key: string): number {
   if (key === "ArrowDown") return 7;
   if (key === "ArrowUp") return -7;
   return 0;
+}
+
+function bindHeatmapKeyboard(buttons: HTMLButtonElement[]): void {
+  buttons.forEach((button, index) => button.addEventListener("keydown", (event) => {
+    const offset = arrowOffset(event.key);
+    if (!offset) return;
+    const target = buttons[index + offset];
+    if (!target || target.disabled) return;
+    event.preventDefault();
+    target.focus();
+    target.click();
+  }));
 }
 
 function petMessage(streak: number, completed: number): string {
