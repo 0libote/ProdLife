@@ -166,7 +166,7 @@ interface ReminderActions {
 }
 
 class ReminderModal extends Modal {
-  constructor(app: App, private item: ReminderItem, private snoozeMinutes: number[], private component: Component, private actions: ReminderActions) { super(app); }
+  constructor(app: App, private readonly item: ReminderItem, private readonly snoozeMinutes: number[], private readonly component: Component, private readonly actions: ReminderActions) { super(app); }
 
   onOpen(): void {
     this.modalEl.addClass("prodlife-reminder-modal");

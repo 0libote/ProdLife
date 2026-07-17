@@ -17,7 +17,7 @@ const ALL_SECTIONS: Array<{ id: DashboardSectionId; label: string }> = [
 
 export class DashboardView extends ItemView {
   private heatmapMode: "year" | "month";
-  private heatmapCursor = new Date();
+  private readonly heatmapCursor = new Date();
   private selectedHeatmapDate = isoDate(new Date());
   private renderGeneration = 0;
   private readonly activityCache = new Map<string, { mtime: number; activity: DayActivity }>();
@@ -262,7 +262,7 @@ export function openDashboardLayout(app: App, settings: ProdLifeSettings, save: 
 }
 
 export class AchievementUnlockModal extends Modal {
-  constructor(app: App, private achievement: Achievement, private petName: string, private closed?: () => void) { super(app); }
+  constructor(app: App, private readonly achievement: Achievement, private readonly petName: string, private readonly closed?: () => void) { super(app); }
   onOpen(): void {
     this.modalEl.addClass("prodlife-unlock-modal");
     this.contentEl.createDiv({ cls: "prodlife-pip-sprite prodlife-pip-sprite--celebrate" });
@@ -278,7 +278,7 @@ export class AchievementUnlockModal extends Modal {
 }
 
 class DashboardLayoutModal extends Modal {
-  constructor(app: App, private settings: ProdLifeSettings, private save: () => Promise<void>) { super(app); }
+  constructor(app: App, private readonly settings: ProdLifeSettings, private readonly save: () => Promise<void>) { super(app); }
   onOpen(): void { this.render(); }
   private render(): void {
     this.contentEl.empty();
@@ -312,7 +312,7 @@ class DashboardLayoutModal extends Modal {
 }
 
 class AchievementModal extends Modal {
-  constructor(app: App, private achievements: Achievement[]) { super(app); }
+  constructor(app: App, private readonly achievements: Achievement[]) { super(app); }
   onOpen(): void {
     this.modalEl.addClass("prodlife-achievement-modal");
     const unlocked = this.achievements.filter((achievement) => achievement.unlocked).length;

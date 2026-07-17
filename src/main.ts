@@ -29,7 +29,7 @@ export default class ProdLifePlugin extends Plugin {
   private reminders!: ReminderService;
   private writing!: WritingTracker;
   private renderTimer: number | null = null;
-  private achievementQueue: Achievement[] = [];
+  private readonly achievementQueue: Achievement[] = [];
   private achievementShowing = false;
   private petPopup: HTMLElement | null = null;
   private petTimer: number | null = null;
@@ -192,11 +192,11 @@ export default class ProdLifePlugin extends Plugin {
   async rebuildWritingHistory(): Promise<void> {
     const { files, failed } = await this.writing.rebuildBackfill();
     await this.refreshViews();
-    new Notice(!files && !failed
-      ? "ProdLife found no new files to backfill."
-      : failed
-      ? `ProdLife rebuilt writing history from ${files} files; ${failed} could not be read.`
-      : `ProdLife backfilled ${files} file${files === 1 ? "" : "s"}.`);
+    const fileLabel = files === 1 ? "file" : "files";
+    let message = `ProdLife backfilled ${files} ${fileLabel}.`;
+    if (!files && !failed) message = "ProdLife found no new files to backfill.";
+    else if (failed) message = `ProdLife rebuilt writing history from ${files} ${fileLabel}; ${failed} could not be read.`;
+    new Notice(message);
   }
 
   openSetupGuide(): void {

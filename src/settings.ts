@@ -5,7 +5,7 @@ import { DEFAULT_SETTINGS } from "./types";
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 export class ProdLifeSettingTab extends PluginSettingTab {
-  constructor(app: App, private plugin: ProdLifePlugin) { super(app, plugin); }
+  constructor(app: App, private readonly plugin: ProdLifePlugin) { super(app, plugin); }
 
   getSettingDefinitions(): SettingDefinitionItem[] {
     return [
@@ -117,10 +117,7 @@ export class ProdLifeSettingTab extends PluginSettingTab {
               {
                 name: "Snooze options",
                 desc: "Comma-separated choices in minutes. 1440 is one day.",
-                render: (setting) => { setting.addText((text) => text.setPlaceholder("30, 60, 180, 1440").setValue(this.plugin.settings.snoozeMinutes.join(", ")).onChange(async (value) => {
-                  const minutes = value.split(",").map(Number).filter((item) => Number.isFinite(item) && item > 0);
-                  if (minutes.length) await this.save("snoozeMinutes", minutes);
-                })); }
+                render: (setting) => this.renderSnoozeOptions(setting)
               },
               { name: "Scan interval", desc: "Seconds between checks. Takes effect after reloading the plugin.", control: { type: "slider", key: "reminderIntervalSeconds", min: 15, max: 300, step: 15, displayFormat: (value) => `${value}s` } },
               { name: "Startup delay", desc: "Wait for sync before overdue reminders and auto-archiving.", control: { type: "slider", key: "startupDelaySeconds", min: 5, max: 120, step: 5, displayFormat: (value) => `${value}s` } }
@@ -173,10 +170,7 @@ export class ProdLifeSettingTab extends PluginSettingTab {
               {
                 name: "Pet quotes",
                 desc: "One message per line.",
-                render: (setting) => { setting.addTextArea((area) => area.setValue(this.plugin.settings.quotes.join("\n")).onChange(async (value) => {
-                  const quotes = value.split("\n").map((line) => line.trim()).filter(Boolean);
-                  if (quotes.length) await this.save("quotes", quotes);
-                })); }
+                render: (setting) => this.renderPetQuotes(setting)
               }
             ]
           }
@@ -417,10 +411,33 @@ export class ProdLifeSettingTab extends PluginSettingTab {
     this.plugin.settings[key] = value.split(",").map((path) => path.trim()).filter(Boolean);
     await this.plugin.saveSettings(invalidateReminders);
   }
+
+  private renderSnoozeOptions(setting: Setting): void {
+    setting.addText((text) => text
+      .setPlaceholder("30, 60, 180, 1440")
+      .setValue(this.plugin.settings.snoozeMinutes.join(", "))
+      .onChange((value) => void this.saveSnoozeOptions(value)));
+  }
+
+  private async saveSnoozeOptions(value: string): Promise<void> {
+    const minutes = value.split(",").map(Number).filter((item) => Number.isFinite(item) && item > 0);
+    if (minutes.length) await this.save("snoozeMinutes", minutes);
+  }
+
+  private renderPetQuotes(setting: Setting): void {
+    setting.addTextArea((area) => area
+      .setValue(this.plugin.settings.quotes.join("\n"))
+      .onChange((value) => void this.savePetQuotes(value)));
+  }
+
+  private async savePetQuotes(value: string): Promise<void> {
+    const quotes = value.split("\n").map((line) => line.trim()).filter(Boolean);
+    if (quotes.length) await this.save("quotes", quotes);
+  }
 }
 
 const validTime = (value: string): string | undefined => {
-  const match = value.match(/^(\d{1,2}):(\d{2})$/);
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value);
   return match && Number(match[1]) < 24 && Number(match[2]) < 60 ? undefined : "Use a 24-hour time such as 09:00.";
 };
 
@@ -430,7 +447,7 @@ class TemplateTaskModal extends Modal {
   private time = "09:00";
   private allDay = false;
 
-  constructor(app: App, private plugin: ProdLifePlugin) { super(app); }
+  constructor(app: App, private readonly plugin: ProdLifePlugin) { super(app); }
 
   onOpen(): void {
     this.contentEl.createEl("h2", { text: "Add task to daily template" });
