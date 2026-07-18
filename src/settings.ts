@@ -1,10 +1,201 @@
-import { App, Modal, Notice, PluginSettingTab, Setting, TextComponent } from "obsidian";
+import { App, Modal, Notice, PluginSettingTab, Setting, TextComponent, type SettingDefinitionItem } from "obsidian";
 import type ProdLifePlugin from "./main";
+import { DEFAULT_SETTINGS } from "./types";
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 export class ProdLifeSettingTab extends PluginSettingTab {
-  constructor(app: App, private plugin: ProdLifePlugin) { super(app, plugin); }
+  constructor(app: App, private readonly plugin: ProdLifePlugin) { super(app, plugin); }
+
+  getSettingDefinitions(): SettingDefinitionItem[] {
+    return [
+      {
+        type: "group",
+        heading: "Getting started",
+        items: [
+          {
+            name: "Setup guide",
+            desc: "Review the recommended workflow without changing anything until you confirm.",
+            render: (setting) => { setting.addButton((button) => button.setButtonText("Open guide").onClick(() => this.plugin.openSetupGuide())); }
+          },
+          {
+            name: "Import your current workflow",
+            desc: "Copy compatible Daily Notes and Reminder settings without changing notes.",
+            aliases: ["migration", "Daily Notes", "Reminder"],
+            render: (setting) => { setting.addButton((button) => button.setButtonText("Import settings").onClick(() => void this.plugin.importLegacySettings())); }
+          }
+        ]
+      },
+      {
+        type: "page",
+        name: "Daily notes",
+        desc: "Folders, templates, rollover, and archiving.",
+        items: [
+          {
+            type: "group",
+            heading: "Location and templates",
+            items: [
+              { name: "Daily notes folder", desc: "Leave blank for the vault root.", control: { type: "folder", key: "dailyFolder", placeholder: "Vault root", includeRoot: true } },
+              { name: "Date format", desc: "Moment.js format used for note names.", control: { type: "text", key: "dateFormat", placeholder: "YYYY-MM-DD", validate: (value) => value.trim() ? undefined : "Enter a date format." } },
+              { name: "Default template", desc: "Used unless a weekday override is set.", control: { type: "text", key: "defaultTemplate", placeholder: "Templates/Daily" } },
+              {
+                name: "Weekday template",
+                desc: "Choose a day, then optionally give it a different template.",
+                render: (setting) => {
+                  let selectedDay = String(new Date().getDay());
+                  let template: TextComponent | null = null;
+                  setting
+                    .addDropdown((dropdown) => {
+                      DAYS.forEach((day, index) => { dropdown.addOption(String(index), day); });
+                      dropdown.setValue(selectedDay).onChange((value) => {
+                        selectedDay = value;
+                        template?.setValue(this.plugin.settings.weekdayTemplates[value] ?? "");
+                      });
+                    })
+                    .addText((text) => {
+                      template = text;
+                      text.inputEl.setAttr("aria-label", "Selected weekday template");
+                      text.setPlaceholder("Weekday override").setValue(this.plugin.settings.weekdayTemplates[selectedDay] ?? "").onChange(async (value) => {
+                        this.plugin.settings.weekdayTemplates[selectedDay] = value.trim();
+                        await this.plugin.saveSettings();
+                      });
+                    });
+                }
+              },
+              {
+                name: "Recurring template task",
+                desc: "Add a dated task without writing template formulas.",
+                render: (setting) => { setting.addButton((button) => button.setButtonText("Add task").onClick(() => new TemplateTaskModal(this.app, this.plugin).open())); }
+              }
+            ]
+          },
+          {
+            type: "group",
+            heading: "Rollover and archive",
+            items: [
+              { name: "Roll unfinished tasks forward", desc: "Preserve open tasks, nested children, and their headings.", control: { type: "toggle", key: "rolloverTasks" } },
+              { name: "Remove empty headings", desc: "Do not carry headings with no unfinished tasks.", control: { type: "toggle", key: "removeEmptyHeadings" } },
+              { name: "Archive folder", desc: "Where old daily notes move. ProdLife never deletes them.", control: { type: "folder", key: "archiveFolder", placeholder: "Archive/Daily" } },
+              { name: "Automatic archiving", desc: "Manual keeps notes in place until you run the archive command.", control: { type: "dropdown", key: "autoArchiveMode", options: { off: "Manual", "next-day": "Next day", "after-days": "After days" } } },
+              { name: "Archive after", desc: "Number of complete days to keep in the daily-note folder.", visible: () => this.plugin.settings.autoArchiveMode === "after-days", control: { type: "number", key: "autoArchiveDays", min: 1, step: 1, validate: (value) => Number.isInteger(value) && value > 0 ? undefined : "Enter a whole number above zero." } }
+            ]
+          },
+          {
+            type: "page",
+            name: "Template reference",
+            desc: "Variables and weekday schedule syntax.",
+            items: [{
+              name: "Available variables",
+              desc: "{{date}}  {{time}}  {{title}}  {{previous_note}}  {{rollover}}\n{{schedule * * 1-5}} applies the following task Monday to Friday."
+            }]
+          }
+        ]
+      },
+      {
+        type: "page",
+        name: "Reminders",
+        desc: "Notification behavior, linked dates, scan scope, and snoozing.",
+        items: [
+          {
+            type: "group",
+            items: [
+              { name: "Enable reminders", desc: "Check the vault for due reminders and show actionable notifications.", control: { type: "toggle", key: "remindersEnabled" } },
+              { name: "Default reminder time", desc: "Used when a reminder specifies a date without a time.", control: { type: "text", key: "defaultReminderTime", placeholder: "09:00", validate: validTime } },
+              { name: "Link reminder dates", desc: "Link new reminders to the matching daily note while keeping an ISO due date.", control: { type: "toggle", key: "linkReminderDates" } }
+            ]
+          },
+          {
+            type: "page",
+            name: "Scope and timing",
+            desc: "Vault scanning, snooze choices, and startup timing.",
+            items: [
+              {
+                name: "Reminder folders",
+                desc: "Comma-separated folders or files. Leave blank to scan the whole vault.",
+                render: (setting) => { setting.addText((text) => text.setPlaceholder("Daily, FTL").setValue(this.plugin.settings.reminderFolders.join(", ")).onChange((value) => this.saveList("reminderFolders", value, true))); }
+              },
+              {
+                name: "Snooze options",
+                desc: "Comma-separated choices in minutes. 1440 is one day.",
+                render: (setting) => this.renderSnoozeOptions(setting)
+              },
+              { name: "Scan interval", desc: "Seconds between checks. Takes effect after reloading the plugin.", control: { type: "slider", key: "reminderIntervalSeconds", min: 15, max: 300, step: 15, displayFormat: (value) => `${value}s` } },
+              { name: "Startup delay", desc: "Wait for sync before overdue reminders and auto-archiving.", control: { type: "slider", key: "startupDelaySeconds", min: 5, max: 120, step: 5, displayFormat: (value) => `${value}s` } }
+            ]
+          }
+        ]
+      },
+      {
+        type: "page",
+        name: "Dashboard and writing",
+        desc: "Heatmap tracking, goals, and dashboard layout.",
+        items: [
+          {
+            type: "group",
+            items: [
+              {
+                name: "Writing folders",
+                desc: "Comma-separated files or folders. Leave blank for the whole vault.",
+                render: (setting) => { setting.addText((text) => text.setPlaceholder("Daily, Notes").setValue(this.plugin.settings.writingFolders.join(", ")).onChange((value) => this.saveList("writingFolders", value))); }
+              },
+              { name: "Daily word goal", desc: "Controls heatmap intensity and writing achievements.", control: { type: "number", key: "writingGoal", min: 1, step: 1, validate: (value) => Number.isInteger(value) && value > 0 ? undefined : "Enter a whole number above zero." } },
+              { name: "Default heatmap view", control: { type: "dropdown", key: "heatmapMode", options: { year: "Year", month: "Month" } } },
+              { name: "Default heatmap metric", desc: "Removed amounts remain visible in each day’s detail.", control: { type: "dropdown", key: "heatmapMetric", options: { words: "Words added", characters: "Characters added", lines: "Lines added" } } },
+              {
+                name: "Backfill writing history",
+                desc: "Scan newly tracked files and resume an interrupted first run without counting completed files twice.",
+                aliases: ["backfill", "rescan", "repair heatmap"],
+                render: (setting) => { setting.addButton((button) => button.setButtonText("Scan now").onClick(() => void this.plugin.rebuildWritingHistory())); }
+              },
+              {
+                name: "Dashboard layout",
+                desc: "Choose, hide, and reorder dashboard sections.",
+                render: (setting) => { setting.addButton((button) => button.setButtonText("Customize").onClick(() => void this.plugin.openDashboardCustomizer())); }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        type: "page",
+        name: "Productivity pet",
+        desc: "Check-ins, name, frequency, and messages.",
+        items: [
+          {
+            type: "group",
+            items: [
+              { name: "Enable pet check-ins", desc: "Let your pet occasionally offer a small prompt.", control: { type: "toggle", key: "petEnabled" } },
+              { name: "Pet name", control: { type: "text", key: "petName", placeholder: "Pip", validate: (value) => value.trim() ? undefined : "Enter a name." } },
+              { name: "Check-in frequency", desc: "Takes effect after reloading the plugin.", control: { type: "slider", key: "petCheckInMinutes", min: 30, max: 240, step: 15, displayFormat: (value) => `${value} min` } },
+              {
+                name: "Pet quotes",
+                desc: "One message per line.",
+                render: (setting) => this.renderPetQuotes(setting)
+              }
+            ]
+          }
+        ]
+      }
+    ];
+  }
+
+  getControlValue(key: string): unknown {
+    return (this.plugin.settings as unknown as Record<string, unknown>)[key];
+  }
+
+  async setControlValue(key: string, value: unknown): Promise<void> {
+    if (!(key in DEFAULT_SETTINGS)) return;
+    if (typeof value === "string" && ["dailyFolder", "dateFormat", "defaultTemplate", "archiveFolder", "defaultReminderTime", "petName"].includes(key)) value = value.trim();
+    if (key === "autoArchiveMode" && value !== "off" && !this.plugin.settings.archiveFolder.trim()) this.plugin.settings.archiveFolder = "Archive/Daily";
+    (this.plugin.settings as unknown as Record<string, unknown>)[key] = value;
+    await this.plugin.saveSettings(key === "defaultReminderTime");
+    if (key === "autoArchiveMode") {
+      const refresh = (this as unknown as { refreshDomState?: () => void }).refreshDomState;
+      refresh?.call(this);
+      const update = (this as unknown as { update?: () => void }).update;
+      update?.call(this);
+    }
+  }
 
   display(): void {
     const { containerEl } = this;
@@ -150,6 +341,10 @@ export class ProdLifeSettingTab extends PluginSettingTab {
       .setDesc("Comma-separated files or folders for permanent words, characters, and lines tracking. Leave blank for the whole vault. The first run scans them once; later updates are incremental.")
       .addText((text) => text.setPlaceholder("Daily, Notes").setValue(this.plugin.settings.writingFolders.join(", ")).onChange((value) => this.save("writingFolders", value.split(",").map((path) => path.trim()).filter(Boolean))));
     new Setting(containerEl)
+      .setName("Backfill writing history")
+      .setDesc("Scan newly tracked files after changing writing folders or if the first backfill was interrupted.")
+      .addButton((button) => button.setButtonText("Scan now").onClick(() => void this.plugin.rebuildWritingHistory()));
+    new Setting(containerEl)
       .setName("Daily word goal")
       .setDesc("Controls heatmap intensity and writing achievements.")
       .addText((text) => {
@@ -211,7 +406,40 @@ export class ProdLifeSettingTab extends PluginSettingTab {
     this.plugin.settings[key] = value;
     await this.plugin.saveSettings(key === "defaultReminderTime" || key === "reminderFolders");
   }
+
+  private async saveList(key: "reminderFolders" | "writingFolders", value: string, invalidateReminders = false): Promise<void> {
+    this.plugin.settings[key] = value.split(",").map((path) => path.trim()).filter(Boolean);
+    await this.plugin.saveSettings(invalidateReminders);
+  }
+
+  private renderSnoozeOptions(setting: Setting): void {
+    setting.addText((text) => text
+      .setPlaceholder("30, 60, 180, 1440")
+      .setValue(this.plugin.settings.snoozeMinutes.join(", "))
+      .onChange((value) => void this.saveSnoozeOptions(value)));
+  }
+
+  private async saveSnoozeOptions(value: string): Promise<void> {
+    const minutes = value.split(",").map(Number).filter((item) => Number.isFinite(item) && item > 0);
+    if (minutes.length) await this.save("snoozeMinutes", minutes);
+  }
+
+  private renderPetQuotes(setting: Setting): void {
+    setting.addTextArea((area) => area
+      .setValue(this.plugin.settings.quotes.join("\n"))
+      .onChange((value) => void this.savePetQuotes(value)));
+  }
+
+  private async savePetQuotes(value: string): Promise<void> {
+    const quotes = value.split("\n").map((line) => line.trim()).filter(Boolean);
+    if (quotes.length) await this.save("quotes", quotes);
+  }
 }
+
+const validTime = (value: string): string | undefined => {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value);
+  return match && Number(match[1]) < 24 && Number(match[2]) < 60 ? undefined : "Use a 24-hour time such as 09:00.";
+};
 
 class TemplateTaskModal extends Modal {
   private target = "default";
@@ -219,7 +447,7 @@ class TemplateTaskModal extends Modal {
   private time = "09:00";
   private allDay = false;
 
-  constructor(app: App, private plugin: ProdLifePlugin) { super(app); }
+  constructor(app: App, private readonly plugin: ProdLifePlugin) { super(app); }
 
   onOpen(): void {
     this.contentEl.createEl("h2", { text: "Add task to daily template" });

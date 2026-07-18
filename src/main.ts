@@ -29,7 +29,7 @@ export default class ProdLifePlugin extends Plugin {
   private reminders!: ReminderService;
   private writing!: WritingTracker;
   private renderTimer: number | null = null;
-  private achievementQueue: Achievement[] = [];
+  private readonly achievementQueue: Achievement[] = [];
   private achievementShowing = false;
   private petPopup: HTMLElement | null = null;
   private petTimer: number | null = null;
@@ -47,7 +47,7 @@ export default class ProdLifePlugin extends Plugin {
     this.writing = new WritingTracker(this.app, () => this.settings, () => this.data, () => this.persistData(), (file) => {
       const frontmatterDate: unknown = this.app.metadataCache.getFileCache(file)?.frontmatter?.date;
       return typeof frontmatterDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(frontmatterDate) ? frontmatterDate : this.daily.dateFor(file);
-    }, () => this.scheduleRefresh(650), this.deviceId);
+    }, (date) => { if (date) this.refreshWritingViews(date); }, this.deviceId);
     this.reminders.delayUntil(Date.now() + this.settings.startupDelaySeconds * 1000);
 
     this.registerView(DASHBOARD_VIEW, (leaf) => new DashboardView(leaf, this.daily, this.reminders, this.writing, () => this.settings, () => this.data, () => this.saveSettings(), (achievements) => this.recordAchievements(achievements), () => this.petCheckIn()));
@@ -189,6 +189,16 @@ export default class ProdLifePlugin extends Plugin {
     openDashboardLayout(this.app, this.settings, async () => { await this.saveSettings(); await this.refreshViews(); });
   }
 
+  async rebuildWritingHistory(): Promise<void> {
+    const { files, failed } = await this.writing.rebuildBackfill();
+    await this.refreshViews();
+    const fileLabel = files === 1 ? "file" : "files";
+    let message = `ProdLife backfilled ${files} ${fileLabel}.`;
+    if (!files && !failed) message = "ProdLife found no new files to backfill.";
+    else if (failed) message = `ProdLife rebuilt writing history from ${files} ${fileLabel}; ${failed} could not be read.`;
+    new Notice(message);
+  }
+
   openSetupGuide(): void {
     new ProdLifeWelcomeModal(this.app, this).open();
   }
@@ -280,7 +290,7 @@ export default class ProdLifePlugin extends Plugin {
     if (this.renderTimer !== null) window.clearTimeout(this.renderTimer);
     this.renderTimer = window.setTimeout(() => {
       this.renderTimer = null;
-      void this.refreshViews();
+      void this.refreshViews(true);
     }, delay);
   }
 
@@ -323,9 +333,15 @@ export default class ProdLifePlugin extends Plugin {
     if (popup) window.setTimeout(() => popup.remove(), 180);
   }
 
-  private async refreshViews(): Promise<void> {
+  private refreshWritingViews(date: string): void {
+    for (const leaf of this.app.workspace.getLeavesOfType(DASHBOARD_VIEW)) {
+      if (leaf.view instanceof DashboardView) leaf.view.refreshWriting(date);
+    }
+  }
+
+  private async refreshViews(preserveHeatmap = false): Promise<void> {
     const renders: Promise<void>[] = [];
-    for (const leaf of this.app.workspace.getLeavesOfType(DASHBOARD_VIEW)) if (leaf.view instanceof DashboardView) renders.push(leaf.view.render());
+    for (const leaf of this.app.workspace.getLeavesOfType(DASHBOARD_VIEW)) if (leaf.view instanceof DashboardView) renders.push(leaf.view.render(preserveHeatmap));
     for (const leaf of this.app.workspace.getLeavesOfType(REMINDER_VIEW)) if (leaf.view instanceof ReminderListView) renders.push(leaf.view.render());
     await Promise.all(renders);
   }

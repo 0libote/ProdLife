@@ -17,7 +17,7 @@ const ALL_SECTIONS: Array<{ id: DashboardSectionId; label: string }> = [
 
 export class DashboardView extends ItemView {
   private heatmapMode: "year" | "month";
-  private heatmapCursor = new Date();
+  private readonly heatmapCursor = new Date();
   private selectedHeatmapDate = isoDate(new Date());
   private renderGeneration = 0;
   private readonly activityCache = new Map<string, { mtime: number; activity: DayActivity }>();
@@ -52,9 +52,13 @@ export class DashboardView extends ItemView {
     await this.render();
   }
 
-  async render(): Promise<void> {
+  async render(preserveHeatmap = false): Promise<void> {
     const generation = ++this.renderGeneration;
     this.contentEl.addClass("prodlife-dashboard");
+    const existingHeatmap = preserveHeatmap
+      ? this.contentEl.querySelector<HTMLElement>('[data-prodlife-section="heatmap"]')
+      : null;
+    let heatmapPlaceholder: HTMLElement | null = null;
     const root = createDiv();
     const masthead = root.createEl("header", { cls: "prodlife-masthead" });
     masthead.createEl("h1", { cls: "prodlife-wordmark", text: "ProdLife" });
@@ -73,13 +77,47 @@ export class DashboardView extends ItemView {
     for (const section of this.settings().dashboardSections) {
       if (section === "hero") this.renderHero(root, taskStreak, activity, today);
       else if (section === "metrics") this.renderMetrics(root, activity, writing, taskStreak, today);
+      else if (section === "heatmap" && existingHeatmap) heatmapPlaceholder = root.createDiv();
       else if (section === "heatmap") this.renderHeatmapSection(root);
       else if (section === "achievements") this.renderAchievementSummary(root, achievements);
       else if (section === "reminders") await this.renderReminders(root);
     }
     if (generation !== this.renderGeneration) return;
+    if (heatmapPlaceholder && existingHeatmap) heatmapPlaceholder.replaceWith(existingHeatmap);
     this.contentEl.empty();
     this.contentEl.append(...Array.from(root.childNodes));
+  }
+
+  refreshWriting(date: string): void {
+    const wordValue = this.writing.values()[date];
+    if (date === isoDate(new Date())) {
+      const value = this.contentEl.querySelector<HTMLElement>(".prodlife-metric--writing strong");
+      value?.setText((wordValue ?? 0).toLocaleString());
+    }
+
+    const metric = this.settings().heatmapMetric;
+    const values = this.writing.values(metric);
+    const label = metricLabel(metric);
+    const total = this.contentEl.querySelector<HTMLElement>(".prodlife-writing-total");
+    total?.setText(`${Object.values(values).reduce((sum, value) => sum + value, 0).toLocaleString()} ${label} added · retained after note deletion`);
+
+    const button = this.contentEl.querySelector<HTMLButtonElement>(`.prodlife-heatmap-day[data-date="${date}"]`);
+    if (button) {
+      const value = values[date] ?? 0;
+      for (let level = 0; level <= 4; level++) button.removeClass(`level-${level}`);
+      button.addClass(`level-${heatmapLevel(value, metricGoal(metric, this.settings().writingGoal))}`);
+      const day = new Date(`${date}T12:00:00`).toLocaleDateString();
+      const description = `${day}: ${value.toLocaleString()} ${label} added`;
+      button.title = description;
+      button.setAttr("aria-label", description);
+    }
+    if (date === this.selectedHeatmapDate) {
+      const detail = this.contentEl.querySelector<HTMLElement>(".prodlife-writing-detail");
+      if (detail) {
+        detail.empty();
+        writingDetail(detail, date, this.writing.day(date));
+      }
+    }
   }
 
   private renderHero(root: HTMLElement, taskStreak: number, activity: DayActivity[], today: Date): void {
@@ -101,7 +139,7 @@ export class DashboardView extends ItemView {
   private renderMetrics(root: HTMLElement, activity: DayActivity[], writing: Record<string, number>, taskStreak: number, today: Date): void {
     const metrics = root.createEl("section", { cls: "prodlife-metrics", attr: { "aria-label": "Productivity metrics" } });
     metric(metrics, "flame", String(taskStreak), "task streak");
-    metric(metrics, "pen-line", (writing[isoDate(today)] ?? 0).toLocaleString(), "words today");
+    metric(metrics, "pen-line", (writing[isoDate(today)] ?? 0).toLocaleString(), "words today", "prodlife-metric--writing");
     metric(metrics, "circle-check-big", activity.reduce((sum, day) => sum + day.completed, 0).toLocaleString(), "tasks completed");
     metric(metrics, "feather", streakForValues(writing, today).toLocaleString(), "writing streak");
   }
@@ -110,11 +148,11 @@ export class DashboardView extends ItemView {
     const metricName = this.settings().heatmapMetric;
     const writing = this.writing.values(metricName);
     const label = metricLabel(metricName);
-    const section = root.createEl("section", { cls: "prodlife-panel prodlife-progress" });
+    const section = root.createEl("section", { cls: "prodlife-panel prodlife-progress", attr: { "data-prodlife-section": "heatmap" } });
     const header = section.createDiv({ cls: "prodlife-section-header" });
     const copy = header.createDiv();
     copy.createEl("h3", { text: "Writing rhythm" });
-    copy.createEl("p", { text: `${Object.values(writing).reduce((sum, value) => sum + value, 0).toLocaleString()} ${label} added · retained after note deletion` });
+    copy.createEl("p", { cls: "prodlife-writing-total", text: `${Object.values(writing).reduce((sum, value) => sum + value, 0).toLocaleString()} ${label} added · retained after note deletion` });
     const controls = header.createDiv({ cls: "prodlife-heatmap-controls" });
     const metricSelect = controls.createEl("select", { attr: { "aria-label": "Heatmap metric" } });
     metricSelect.createEl("option", { text: "Words", value: "words" });
@@ -224,7 +262,7 @@ export function openDashboardLayout(app: App, settings: ProdLifeSettings, save: 
 }
 
 export class AchievementUnlockModal extends Modal {
-  constructor(app: App, private achievement: Achievement, private petName: string, private closed?: () => void) { super(app); }
+  constructor(app: App, private readonly achievement: Achievement, private readonly petName: string, private readonly closed?: () => void) { super(app); }
   onOpen(): void {
     this.modalEl.addClass("prodlife-unlock-modal");
     this.contentEl.createDiv({ cls: "prodlife-pip-sprite prodlife-pip-sprite--celebrate" });
@@ -240,7 +278,7 @@ export class AchievementUnlockModal extends Modal {
 }
 
 class DashboardLayoutModal extends Modal {
-  constructor(app: App, private settings: ProdLifeSettings, private save: () => Promise<void>) { super(app); }
+  constructor(app: App, private readonly settings: ProdLifeSettings, private readonly save: () => Promise<void>) { super(app); }
   onOpen(): void { this.render(); }
   private render(): void {
     this.contentEl.empty();
@@ -274,7 +312,7 @@ class DashboardLayoutModal extends Modal {
 }
 
 class AchievementModal extends Modal {
-  constructor(app: App, private achievements: Achievement[]) { super(app); }
+  constructor(app: App, private readonly achievements: Achievement[]) { super(app); }
   onOpen(): void {
     this.modalEl.addClass("prodlife-achievement-modal");
     const unlocked = this.achievements.filter((achievement) => achievement.unlocked).length;
@@ -296,8 +334,8 @@ class AchievementModal extends Modal {
   }
 }
 
-function metric(parent: HTMLElement, iconName: string, value: string, label: string): void {
-  const item = parent.createDiv({ cls: "prodlife-metric" });
+function metric(parent: HTMLElement, iconName: string, value: string, label: string, cls = ""): void {
+  const item = parent.createDiv({ cls: `prodlife-metric ${cls}` });
   const icon = item.createDiv({ cls: "prodlife-metric-icon" });
   setIcon(icon, iconName);
   const copy = item.createDiv();
@@ -322,7 +360,7 @@ function renderWritingHeatmap(
   for (const date = new Date(start); date <= end; date.setDate(date.getDate() + 1)) {
     const dateKey = isoDate(date);
     const value = values[dateKey] ?? 0;
-    const level = Math.min(4, Math.ceil(value / Math.max(1, goal / 4)));
+    const level = heatmapLevel(value, goal);
     const future = date.getTime() > Date.now();
     const button = wrapper.createEl("button", {
       cls: `prodlife-heatmap-day level-${level}${dateKey === selected ? " is-selected" : ""}${dateKey === isoDate(new Date()) ? " is-today" : ""}`,
@@ -357,6 +395,7 @@ function writingDetail(parent: HTMLElement, date: string, metrics: WritingMetric
 }
 
 const metricLabel = (metric: WritingMetric): string => metric === "characters" ? "characters" : metric;
+const heatmapLevel = (value: number, goal: number): number => Math.min(4, Math.ceil(value / Math.max(1, goal / 4)));
 function metricGoal(metric: WritingMetric, wordGoal: number): number {
   if (metric === "characters") return wordGoal * 6;
   if (metric === "lines") return Math.max(1, Math.ceil(wordGoal / 12));

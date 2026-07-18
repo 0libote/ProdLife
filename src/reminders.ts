@@ -166,11 +166,11 @@ interface ReminderActions {
 }
 
 class ReminderModal extends Modal {
-  constructor(app: App, private item: ReminderItem, private snoozeMinutes: number[], private component: Component, private actions: ReminderActions) { super(app); }
+  constructor(app: App, private readonly item: ReminderItem, private readonly snoozeMinutes: number[], private readonly component: Component, private readonly actions: ReminderActions) { super(app); }
 
   onOpen(): void {
     this.modalEl.addClass("prodlife-reminder-modal");
-    this.contentEl.createDiv({ cls: "prodlife-pet prodlife-pet--alert", text: "◆" });
+    this.contentEl.createDiv({ cls: "prodlife-pip-sprite prodlife-pip-sprite--talk", attr: { role: "img", "aria-label": "Pip reminder" } });
     this.contentEl.createEl("h2", { text: "A gentle nudge" });
     const title = this.contentEl.createEl("p", { cls: "prodlife-reminder-title" });
     void MarkdownRenderer.render(this.app, this.item.text, title, this.item.path, this.component);
@@ -247,7 +247,7 @@ class ReminderEditorModal extends Modal {
       const button = calendar.createEl("button", {
         cls: `prodlife-calendar-day${date.getMonth() === this.visibleMonth.getMonth() ? "" : " is-outside"}${sameDay(date, this.selected) ? " is-selected" : ""}${sameDay(date, new Date()) ? " is-today" : ""}`,
         text: String(date.getDate()),
-        attr: { "aria-label": date.toLocaleDateString() }
+        attr: { "aria-label": date.toLocaleDateString(), "aria-pressed": String(sameDay(date, this.selected)) }
       });
       button.addEventListener("click", () => { this.selected = date; this.render(); });
     }
@@ -257,7 +257,9 @@ class ReminderEditorModal extends Modal {
     allDay.checked = this.allDay;
     allDay.addEventListener("change", () => { this.allDay = allDay.checked; this.render(); });
     allDayLabel.createSpan({ text: "All day" });
-    const time = fields.createEl("input", { type: "time", value: this.time });
+    const timeLabel = fields.createEl("label", { cls: "prodlife-time-field" });
+    timeLabel.createSpan({ text: "Time" });
+    const time = timeLabel.createEl("input", { type: "time", value: this.time });
     time.disabled = this.allDay;
     time.addEventListener("change", () => { this.time = time.value; });
     const actions = this.contentEl.createDiv({ cls: "prodlife-modal-actions" });
